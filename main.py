@@ -12,4 +12,4 @@ def cb(c): bot.answer_callback_query(c.id) bot.send_message(c.message.chat.id,f"
 @bot.message_handler(commands=['help'])
 def h(m): bot.reply_to(m,"/start شروع\n/mood حال\n/help راهنما")
 print("✅ فعال")
-bot.infinity_polling (non_stop=True)
+bot.infinity_polling
