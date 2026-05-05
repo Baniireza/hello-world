@@ -1,99 +1,33 @@
 import os
 from flask import Flask, request
 import telebot
-from telebot import types
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
 
-# ---------- تنظیمات ----------
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+TOKEN = os.environ.get("BOT_TOKEN")  # توکن ربات
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # URL وبهوک
 
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# ---------- مدل رایگان GPT ----------
-MODEL_NAME = "distilgpt2"  # مدل کوچک و رایگان
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
-
-def generate_reply(prompt):
-    inputs = tokenizer(prompt, return_tensors="pt")
-    outputs = model.generate(
-        **inputs,
-        max_length=100,
-        do_sample=True,
-        top_k=50,
-        top_p=0.95,
-        temperature=0.8
-    )
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-# ---------- حافظه کوتاه ----------
-user_memory = {}  # user_id -> [پیام‌ها]
-
-moods = ['😀 عالی', '😐 معمولی', '😔 بد', '😡 خیلی بد']
-
-# ---------- Handlers ----------
+# مثال دستور ساده
 @bot.message_handler(commands=['start'])
-def start(m):
-    bot.reply_to(m, "🧠 سلام! من ربات شخصی تو هستم.\n/mood حال امروزت\n/help راهنما")
+def start_message(message):
+    bot.reply_to(message, "سلام! ربات شما آماده است 😎")
 
-@bot.message_handler(commands=['mood'])
-def mood_handler(m):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for md in moods:
-        markup.add(types.InlineKeyboardButton(md, callback_data=f"mood_{md}"))
-    bot.send_message(m.chat.id, "💭 حال امروزت چطوره؟", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith('mood_'))
-def cb(c):
-    bot.answer_callback_query(c.id)
-    bot.send_message(c.message.chat.id, f"✅ ثبت شد: {c.data[5:]}")
-
-@bot.message_handler(commands=['help'])
-def help_handler(m):
-    bot.reply_to(m, "/start شروع\n/mood حال\n/help راهنما")
-
-# ---------- Smart AI Reply with short memory ----------
-@bot.message_handler(func=lambda m: True)
-def smart_reply(m):
-    user_id = m.from_user.id
-    # اضافه کردن پیام جدید به حافظه
-    if user_id not in user_memory:
-        user_memory[user_id] = []
-    user_memory[user_id].append(m.text)
-    # محدود کردن حافظه به ۵ پیام آخر
-    user_memory[user_id] = user_memory[user_id][-5:]
-    
-    # آماده کردن پرومپت با توجه به تاریخچه مکالمه
-    history = "\n".join(user_memory[user_id])
-    prompt = f"""
-تو یک ربات کلانتر هستی که با لحن خودمونی، بامزه و منطقی جواب می‌ده. به پیام‌های گذشته کاربر توجه کن و پاسخ دوستانه و کوتاه بده. ایموجی استفاده کن و همیشه خودمونی باش. 
-تاریخچه پیام‌های کاربر: {history}
-پیام فعلی کاربر: {m.text}
-"""
-
-    try:
-        answer = generate_reply(prompt)
-        bot.send_message(m.chat.id, answer)
-    except Exception as e:
-        print(e)
-        bot.send_message(m.chat.id, "❌ خطا در پاسخ دادن به پیامت!")
-
-# ---------- Webhook ----------
-@app.route('/', methods=['POST'])
+# وبهوک برای Render
+@app.route("/" + TOKEN, methods=["POST"])
 def webhook():
-    json_str = request.get_data().decode('utf-8')
+    json_str = request.get_data().decode("utf-8")
     update = telebot.types.Update.de_json(json_str)
     bot.process_new_updates([update])
-    return '!', 200
+    return "OK", 200
 
-@app.route('/')
+# صحت وبهوک
+@app.route("/")
 def index():
-    return "Bot is running!", 200
+    return "ربات آنلاین است ✅"
 
 if __name__ == "__main__":
     bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
-    app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
+    bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
