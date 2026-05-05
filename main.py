@@ -2,16 +2,32 @@ import os
 from flask import Flask, request
 import telebot
 from telebot import types
-import openai
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
 
+# ---------- تنظیمات ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-OPENAI_KEY = os.getenv("OPENAI_KEY")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-openai.api_key = OPENAI_KEY
+# ---------- مدل رایگان GPT ----------
+MODEL_NAME = "distilgpt2"  # مدل کوچک و رایگان
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+
+def generate_reply(prompt):
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(
+        **inputs,
+        max_length=100,
+        do_sample=True,
+        top_k=50,
+        top_p=0.95,
+        temperature=0.8
+    )
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
 # ---------- حافظه کوتاه ----------
 user_memory = {}  # user_id -> [پیام‌ها]
@@ -43,35 +59,26 @@ def help_handler(m):
 @bot.message_handler(func=lambda m: True)
 def smart_reply(m):
     user_id = m.from_user.id
-
     # اضافه کردن پیام جدید به حافظه
     if user_id not in user_memory:
         user_memory[user_id] = []
     user_memory[user_id].append(m.text)
-    
     # محدود کردن حافظه به ۵ پیام آخر
     user_memory[user_id] = user_memory[user_id][-5:]
-
+    
     # آماده کردن پرومپت با توجه به تاریخچه مکالمه
     history = "\n".join(user_memory[user_id])
     prompt = f"""
-تو یک ربات کلانتر هستی که با لحن خودمونی، بامزه و منطقی جواب می‌ده.
-به پیام‌های گذشته کاربر توجه کن و پاسخ دوستانه و کوتاه بده.
-ایموجی استفاده کن و همیشه خودمونی باش.
-تاریخچه پیام‌های کاربر:
-{history}
+تو یک ربات کلانتر هستی که با لحن خودمونی، بامزه و منطقی جواب می‌ده. به پیام‌های گذشته کاربر توجه کن و پاسخ دوستانه و کوتاه بده. ایموجی استفاده کن و همیشه خودمونی باش. 
+تاریخچه پیام‌های کاربر: {history}
 پیام فعلی کاربر: {m.text}
 """
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4.1-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=150
-        )
-        answer = response.choices[0].message.content
+        answer = generate_reply(prompt)
         bot.send_message(m.chat.id, answer)
     except Exception as e:
+        print(e)
         bot.send_message(m.chat.id, "❌ خطا در پاسخ دادن به پیامت!")
 
 # ---------- Webhook ----------
