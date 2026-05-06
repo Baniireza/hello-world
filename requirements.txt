@@ -1,4 +1,7 @@
-pyTelegramBotAPI==4.14.0
 Flask==2.3.3
+pyTelegramBotAPI==4.14.0
 requests==2.33.1
 openai==1.30.0
+httpx>=0.28.0
+pydantic>=2.13.0
+gunicorn==21.2.0
