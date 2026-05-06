@@ -9,7 +9,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 OPENAI_KEY = os.getenv("OPENAI_KEY")
 
 bot = telebot.TeleBot(BOT_TOKEN)
-app = Flask(name)
+app = app = Flask(__name__)
 
 openai.api_key = OPENAI_KEY
 
