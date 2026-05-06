@@ -1,77 +1,92 @@
-# main.py
 import os
 from flask import Flask, request
 import telebot
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-
-# --- توکن و وبهوک ---
-TOKEN = os.environ.get("BOT_TOKEN")  # توکن ربات
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # URL وبهوک
-
-bot = telebot.TeleBot(TOKEN)
-app = Flask(__name__)
-
-# --- مدل AI سبک ---
-model_name = "distilgpt2"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name)
-
-def ai_reply(prompt):
-    inputs = tokenizer(prompt, return_tensors="pt")
-    # محدودیت max_length برای RAM پایین
-    outputs = model.generate(**inputs, max_length=50, do_sample=True, top_k=50)
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-# --- Mood دکمه‌ها ---
 from telebot import types
-moods = ['😀 عالی','😐 معمولی','😔 بد','😡 خیلی بد']
+import openai
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+OPENAI_KEY = os.getenv("OPENAI_KEY")
+
+bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(name)
+
+openai.api_key = OPENAI_KEY
+
+# ---------- حافظه کوتاه ----------
+user_memory = {}  # user_id -> [پیام‌ها]
+
+moods = ['😀 عالی', '😐 معمولی', '😔 بد', '😡 خیلی بد']
+
+# ---------- Handlers ----------
+@bot.message_handler(commands=['start'])
+def start(m):
+    bot.reply_to(m, "🧠 سلام! من ربات شخصی تو هستم.\n/mood حال امروزت\n/help راهنما")
 
 @bot.message_handler(commands=['mood'])
-def mood_handler(message):
+def mood_handler(m):
     markup = types.InlineKeyboardMarkup(row_width=2)
     for md in moods:
         markup.add(types.InlineKeyboardButton(md, callback_data=f"mood_{md}"))
-    bot.send_message(message.chat.id, "💭 حال امروزت؟", reply_markup=markup)
+    bot.send_message(m.chat.id, "💭 حال امروزت چطوره؟", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith('mood_'))
 def cb(c):
     bot.answer_callback_query(c.id)
     bot.send_message(c.message.chat.id, f"✅ ثبت شد: {c.data[5:]}")
 
-# --- دستور شروع ---
-@bot.message_handler(commands=['start'])
-def start_message(message):
-    bot.reply_to(message, "سلام! ربات AI شما آماده است 😎\n\n/mood حال\n/help راهنما")
-
 @bot.message_handler(commands=['help'])
-def help_message(message):
-    bot.reply_to(message, "/start شروع\n/mood حال\n/help راهنما")
+def help_handler(m):
+    bot.reply_to(m, "/start شروع\n/mood حال\n/help راهنما")
 
-# --- پاسخ به همه پیام‌ها با AI ---
+# ---------- Smart AI Reply with short memory ----------
 @bot.message_handler(func=lambda m: True)
-def all_messages(message):
-    try:
-        reply = ai_reply(message.text)
-    except Exception as e:
-        reply = "❌ خطا در پاسخ دادن! هنوز سرور سنگینه 😅"
-    bot.reply_to(message, reply)
+def smart_reply(m):
+    user_id = m.from_user.id
 
-# --- وبهوک برای Render ---
-@app.route("/" + TOKEN, methods=["POST"])
+    # اضافه کردن پیام جدید به حافظه
+    if user_id not in user_memory:
+        user_memory[user_id] = []
+    user_memory[user_id].append(m.text)
+    
+    # محدود کردن حافظه به ۵ پیام آخر
+    user_memory[user_id] = user_memory[user_id][-5:]
+
+    # آماده کردن پرومپت با توجه به تاریخچه مکالمه
+    history = "\n".join(user_memory[user_id])
+    prompt = f"""
+تو یک ربات کلانتر هستی که با لحن خودمونی، بامزه و منطقی جواب می‌ده.
+به پیام‌های گذشته کاربر توجه کن و پاسخ دوستانه و کوتاه بده.
+ایموجی استفاده کن و همیشه خودمونی باش.
+تاریخچه پیام‌های کاربر:
+{history}
+پیام فعلی کاربر: {m.text}
+"""
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150
+        )
+        answer = response.choices[0].message.content
+        bot.send_message(m.chat.id, answer)
+    except Exception as e:
+        bot.send_message(m.chat.id, "❌ خطا در پاسخ دادن به پیامت!")
+
+# ---------- Webhook ----------
+@app.route('/', methods=['POST'])
 def webhook():
-    json_str = request.get_data().decode("utf-8")
+    json_str = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_str)
     bot.process_new_updates([update])
-    return "OK", 200
+    return '!', 200
 
-# --- تست آنلاین ---
-@app.route("/")
+@app.route('/')
 def index():
-    return "ربات آنلاین است ✅"
+    return "Bot is running!", 200
 
-if __name__ == "__main__":
+if name == "main":
     bot.remove_webhook()
-    bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    bot.set_webhook(url=WEBHOOK_URL)
+    app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
