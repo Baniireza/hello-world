@@ -12,7 +12,11 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
 # ====== ایجاد کلاینت GapGPT ======
-client = OpenAI(base_url="https://api.gapgpt.app/v1", api_key=GAPGPT_API_KEY)
+# نسخه‌ای از OpenAI که با GapGPT سازگار است
+client = OpenAI(
+    api_key=GAPGPT_API_KEY,
+    base_url="https://api.gapgpt.app/v1"
+)
 
 # ====== شخصیت ربات ======
 PERSONALITY_PROMPT = """
@@ -28,7 +32,7 @@ PERSONALITY_PROMPT = """
 # ====== فانکشن پاسخ هوش مصنوعی ======
 def get_ai_response(user_message):
     response = client.chat.completions.create(
-        model="gpt-4o",  # می‌تونی مدل رو تغییر بدی
+        model="gpt-4o",  # مدل GapGPT
         messages=[
             {"role": "system", "content": PERSONALITY_PROMPT},
             {"role": "user", "content": user_message}
