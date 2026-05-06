@@ -30,7 +30,7 @@ PERSONALITY_PROMPT = """
 # ====== فانکشن پاسخ هوش مصنوعی ======
 def get_ai_response(user_message):
     response = openai.ChatCompletion.create(
-        model="gpt-5.4-mini",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": PERSONALITY_PROMPT},
             {"role": "user", "content": user_message}
