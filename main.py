@@ -1,92 +1,57 @@
-import os
 from flask import Flask, request
 import telebot
-from telebot import types
 import openai
+import os
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-OPENAI_KEY = os.getenv("OPENAI_KEY")
+# ====== تنظیمات ======
+TELEGRAM_TOKEN = "توکن_ربات_تو"  # از BotFather بگیر
+OPENAI_API_KEY = "کلید_API_تو"
 
-bot = telebot.TeleBot(BOT_TOKEN)
-app = app = Flask(__name__)
+openai.api_key = OPENAI_API_KEY
 
-openai.api_key = OPENAI_KEY
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+app = Flask(__name__)
 
-# ---------- حافظه کوتاه ----------
-user_memory = {}  # user_id -> [پیام‌ها]
-
-moods = ['😀 عالی', '😐 معمولی', '😔 بد', '😡 خیلی بد']
-
-# ---------- Handlers ----------
-@bot.message_handler(commands=['start'])
-def start(m):
-    bot.reply_to(m, "🧠 سلام! من ربات شخصی تو هستم.\n/mood حال امروزت\n/help راهنما")
-
-@bot.message_handler(commands=['mood'])
-def mood_handler(m):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for md in moods:
-        markup.add(types.InlineKeyboardButton(md, callback_data=f"mood_{md}"))
-    bot.send_message(m.chat.id, "💭 حال امروزت چطوره؟", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith('mood_'))
-def cb(c):
-    bot.answer_callback_query(c.id)
-    bot.send_message(c.message.chat.id, f"✅ ثبت شد: {c.data[5:]}")
-
-@bot.message_handler(commands=['help'])
-def help_handler(m):
-    bot.reply_to(m, "/start شروع\n/mood حال\n/help راهنما")
-
-# ---------- Smart AI Reply with short memory ----------
-@bot.message_handler(func=lambda m: True)
-def smart_reply(m):
-    user_id = m.from_user.id
-
-    # اضافه کردن پیام جدید به حافظه
-    if user_id not in user_memory:
-        user_memory[user_id] = []
-    user_memory[user_id].append(m.text)
-    
-    # محدود کردن حافظه به ۵ پیام آخر
-    user_memory[user_id] = user_memory[user_id][-5:]
-
-    # آماده کردن پرومپت با توجه به تاریخچه مکالمه
-    history = "\n".join(user_memory[user_id])
-    prompt = f"""
-تو یک ربات کلانتر هستی که با لحن خودمونی، بامزه و منطقی جواب می‌ده.
-به پیام‌های گذشته کاربر توجه کن و پاسخ دوستانه و کوتاه بده.
-ایموجی استفاده کن و همیشه خودمونی باش.
-تاریخچه پیام‌های کاربر:
-{history}
-پیام فعلی کاربر: {m.text}
+# ====== شخصیت ربات ======
+PERSONALITY_PROMPT = """
+تو یه کلانتر باحال و باهوش و منطقی هستی. 
+جواب‌ها باید خودمونی، بامزه و محترمانه باشه.
+هیچ وقت جواب تند یا توهین‌آمیز نده.
 """
 
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4.1-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=150
-        )
-        answer = response.choices[0].message.content
-        bot.send_message(m.chat.id, answer)
-    except Exception as e:
-        bot.send_message(m.chat.id, "❌ خطا در پاسخ دادن به پیامت!")
+# ====== فانکشن پاسخ هوش مصنوعی ======
+def get_ai_response(user_message):
+    response = openai.ChatCompletion.create(
+        model="gpt-5-mini",
+        messages=[
+            {"role": "system", "content": PERSONALITY_PROMPT},
+            {"role": "user", "content": user_message}
+        ]
+    )
+    return response['choices'][0]['message']['content']
 
-# ---------- Webhook ----------
-@app.route('/', methods=['POST'])
-def webhook():
-    json_str = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
-    return '!', 200
+# ====== هندل پیام‌ها ======
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    user_text = message.text
+    ai_reply = get_ai_response(user_text)
+    bot.reply_to(message, ai_reply)
 
-@app.route('/')
+# ====== فلکس وب‌هوک ساده ======
+@app.route("/", methods=["GET"])
 def index():
-    return "Bot is running!", 200
+    return "ربات فعال است ✅"
 
-if name == "main":
-    bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
-    app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
+# ====== اجرا ======
+if __name__ == "__main__":
+    # اجرای همزمان Flask و Telebot
+    from threading import Thread
+
+    # اجرای ربات تلگرام در یک thread
+    def run_bot():
+        bot.infinity_polling()
+
+    Thread(target=run_bot).start()
+
+    # اجرای فلکس
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
