@@ -1,13 +1,13 @@
 from flask import Flask, request
 import telebot
-import openai
+from openai import OpenAI
 import os
 
 # ====== تنظیمات ======
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")  # بهتره Secret Env Variable بذاری
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-openai.api_key = OPENAI_API_KEY
+Client = OpenAI(api_key=OPENAI_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
@@ -29,14 +29,14 @@ PERSONALITY_PROMPT = """
 
 # ====== فانکشن پاسخ هوش مصنوعی ======
 def get_ai_response(user_message):
-    response = openai.ChatCompletion.create(
+    response = client.chat.completion.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": PERSONALITY_PROMPT},
             {"role": "user", "content": user_message}
         ]
     )
-    return response['choices'][0]['message']['content']
+    return response.choices[0].message.content
 
 # ====== هندل پیام‌های تلگرام از طریق وب‌هوک ======
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
