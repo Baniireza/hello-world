@@ -4,9 +4,9 @@ from openai import OpenAI
 import os
 
 # ====== تنظیمات ======
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")  # توکن ربات تلگرام
-GAPGPT_API_KEY = os.environ.get("GAPGPT_API_KEY")  # توکن GapGPT
-APP_URL = os.environ.get("APP_URL")  # URL برنامه روی Render/Heroku
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+GAPGPT_API_KEY = os.environ.get("GAPGPT_API_KEY")
+APP_URL = os.environ.get("APP_URL")  # URL برنامه روی Render
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
@@ -28,7 +28,7 @@ PERSONALITY_PROMPT = """
 # ====== فانکشن پاسخ هوش مصنوعی ======
 def get_ai_response(user_message):
     response = client.chat.completions.create(
-        model="gpt-4o",  # مدل GapGPT
+        model="gpt-4o",  # می‌تونی مدل رو تغییر بدی
         messages=[
             {"role": "system", "content": PERSONALITY_PROMPT},
             {"role": "user", "content": user_message}
@@ -36,7 +36,7 @@ def get_ai_response(user_message):
     )
     return response.choices[0].message.content
 
-# ====== هندل پیام‌های تلگرام ======
+# ====== هندل پیام‌های تلگرام از طریق وب‌هوک ======
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def webhook():
     json_string = request.get_data().decode('utf-8')
@@ -59,7 +59,7 @@ def set_webhook():
 # ====== صفحه اصلی ======
 @app.route("/", methods=["GET"])
 def index():
-    return "ربات تراپیست فعال است ✅"
+    return "ربات فعال است ✅"
 
 # ====== اجرا ======
 if __name__ == "__main__":
