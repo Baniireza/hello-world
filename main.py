@@ -1,44 +1,51 @@
 from flask import Flask, request
 import telebot
-from openai import OpenAI
 import os
+import google.generativeai as genai
 
 # ====== تنظیمات ======
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")  # بهتره Secret Env Variable بذاری
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+APP_URL = os.environ.get("APP_URL")
 
-Client = OpenAI(api_key=OPENAI_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
+# ====== تنظیم Gemini ======
+genai.configure(api_key=GOOGLE_API_KEY)
+model = genai.GenerativeModel("gemini-1.5-flash")
+
 # ====== شخصیت ربات ======
 PERSONALITY_PROMPT = """
-تو ربات تراپیست و روانشناس هستی. 
-جواب‌ها باید خودمونی، صمیمی و منطقی باشن و حس آرامش و اعتماد ایجاد کنن.
-هیچ وقت قضاوت نکن، مودب و همراه باش.
-وقتی کسی احساساتش رو بیان می‌کنه، با دقت گوش بده و پاسخ بده که انگار یک دوست حرفه‌ای و قابل اعتماد هستی.
-می‌تونی مثال‌های روزمره یا متدهای روانشناسی ساده و کاربردی برای توضیح استفاده کنی.
-جواب‌ها کوتاه، گویا و قابل درک باشن، طولانی و پیچیده نباشن مگر ضرورت داشته باشه.
-همیشه مهربانی و همدلی رو حفظ کن، و کمی حس حمایت و تشویق هم اضافه کن.
-از اصطلاحات محاوره‌ای و عامیانه فارسی استفاده کن تا حس واقعی و صمیمی داشته باشه.
-مثال‌ها:
-- "می‌فهمم، این حس واقعاً سخت می‌تونه باشه 😌، بیا با هم یه راه ساده پیدا کنیم."
-- "خب، یه تکنیک کوچک داریم که ممکنه کمکت کنه 😏، امتحان کنیم؟"
-- "می‌دونم این موضوع نگرانت کرده، اما قدم به قدم با هم جلو می‌ریم 💪"
+تو یک ربات تراپیست و روانشناس هستی.
+جواب‌ها باید:
+- خودمونی و صمیمی باشن
+- کوتاه و قابل فهم باشن
+- قضاوت نکنن
+- حس آرامش و امنیت بدن
+
+سبک صحبت:
+- محاوره‌ای فارسی
+- مهربان و همراه
+- کمی انگیزشی
+
+مثال:
+- "می‌فهمم، این حس واقعاً می‌تونه سخت باشه 😌"
+- "بیا یه راه ساده با هم امتحان کنیم 💪"
 """
 
-# ====== فانکشن پاسخ هوش مصنوعی ======
+# ====== فانکشن پاسخ ======
 def get_ai_response(user_message):
-    response = client.chat.completion.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": PERSONALITY_PROMPT},
-            {"role": "user", "content": user_message}
-        ]
-    )
-    return response.choices[0].message.content
+    try:
+        response = model.generate_content(
+            PERSONALITY_PROMPT + "\n\nکاربر: " + user_message
+        )
+        return response.text
+    except Exception as e:
+        print("ERROR:", e)
+        return "یه مشکلی پیش اومد 😕 دوباره امتحان کن"
 
-# ====== هندل پیام‌های تلگرام از طریق وب‌هوک ======
+# ====== webhook ======
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def webhook():
     json_string = request.get_data().decode('utf-8')
@@ -46,20 +53,20 @@ def webhook():
     bot.process_new_updates([update])
     return "!", 200
 
+# ====== هندل پیام ======
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
-    ai_reply = get_ai_response(message.text)
-    bot.reply_to(message, ai_reply)
+    reply = get_ai_response(message.text)
+    bot.reply_to(message, reply)
 
-# ====== فعال کردن وب‌هوک ======
+# ====== ست کردن webhook ======
 @app.route("/set_webhook", methods=["GET"])
 def set_webhook():
-    url = os.environ.get("APP_URL")  # URL برنامه روی Render/Heroku
-    webhook_url = f"{url}/{TELEGRAM_TOKEN}"
+    webhook_url = f"{APP_URL}/{TELEGRAM_TOKEN}"
     success = bot.set_webhook(webhook_url)
     return f"Webhook set: {success}"
 
-# ====== صفحه اصلی ======
+# ====== صفحه تست ======
 @app.route("/", methods=["GET"])
 def index():
     return "ربات فعال است ✅"
