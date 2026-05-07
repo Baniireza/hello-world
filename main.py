@@ -1,95 +1,77 @@
 from flask import Flask, request
 import telebot
 import os
-import google.generativeai as genai
+import requests
 
-# ====== تنظیمات ======
+# ====== ENV ======
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+HF_TOKEN = os.environ.get("HF_TOKEN")
 APP_URL = os.environ.get("APP_URL")
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
-# ====== تنظیم Gemini ======
-genai.configure(api_key=GOOGLE_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash-latest")
+# ====== مدل HuggingFace ======
+API_URL = "https://api-inference.huggingface.co/models/HuggingFaceTB/SmolLM2-1.7B-Instruct"
 
-# ====== شخصیت ربات ======
+headers = {
+    "Authorization": f"Bearer {HF_TOKEN}"
+}
+
 PERSONALITY_PROMPT = """
-تو یک ربات تراپیست و روانشناس هستی.
-جواب‌ها باید:
-- خودمونی و صمیمی باشن
-- کوتاه و قابل فهم باشن
-- قضاوت نکنن
-- حس آرامش و امنیت بدن
-
-سبک صحبت:
-- محاوره‌ای فارسی
-- مهربان و همراه
-- کمی انگیزشی
+تو یک ربات روانشناس و همراه هستی.
+سبک پاسخ:
+- خودمونی و فارسی محاوره‌ای
+- کوتاه و ساده
+- بدون قضاوت
+- آرامش‌بخش و حمایتی
 """
 
-# ====== تست مستقیم Gemini ======
-@app.route("/test-gemini", methods=["GET"])
-def test_gemini():
-    try:
-        response = model.generate_content("سلام، فقط تست")
-        return {
-            "status": "ok",
-            "response": response.text
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
-
-# ====== فانکشن پاسخ ======
 def get_ai_response(user_message):
     try:
-        print("DEBUG: sending to Gemini:", user_message)
+        payload = {
+            "inputs": PERSONALITY_PROMPT + "\n\nکاربر: " + user_message
+        }
 
-        response = model.generate_content(
-            PERSONALITY_PROMPT + "\n\nکاربر: " + user_message
-        )
+        response = requests.post(API_URL, headers=headers, json=payload)
+        result = response.json()
 
-        print("DEBUG RESPONSE:", response.text)
-
-        return response.text
-
+        # بعضی وقت‌ها لیست برمیگردونه
+        if isinstance(result, list):
+            return result[0].get("generated_text", "...")
+        
+        return "یه مشکلی پیش اومد 😕"
+    
     except Exception as e:
-        print("GEMINI ERROR:", e)
-        return "یه مشکلی پیش اومد 😕 دوباره امتحان کن"
+        print("ERROR:", e)
+        return "خطا در اتصال به مدل 😕"
 
-# ====== webhook ======
-@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
-def webhook():
-    json_string = request.get_data().decode("utf-8")
-    update = telebot.types.Update.de_json(json_string)
-    bot.process_new_updates([update])
-    return "!", 200
-
-# ====== هندل پیام ======
+# ====== Telegram handler ======
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
-    print("پیام دریافت شد:", message.text)
+    print("MSG:", message.text)
     reply = get_ai_response(message.text)
     bot.reply_to(message, reply)
 
-# ====== ست کردن webhook ======
-@app.route("/set_webhook", methods=["GET"])
+# ====== Webhook ======
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def webhook():
+    update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
+    bot.process_new_updates([update])
+    return "OK", 200
+
+# ====== set webhook ======
+@app.route("/set_webhook")
 def set_webhook():
-    webhook_url = f"{APP_URL}/{TELEGRAM_TOKEN}"
-    success = bot.set_webhook(webhook_url)
-    return f"Webhook set: {success}"
+    url = f"{APP_URL}/{TELEGRAM_TOKEN}"
+    return str(bot.set_webhook(url))
 
-# ====== صفحه تست ======
-@app.route("/", methods=["GET"])
-def index():
-    return "ربات فعال است ✅"
+# ====== test route ======
+@app.route("/")
+def home():
+    return "Bot is alive ✅"
 
-# ====== اجرا ======
+# ====== run ======
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
