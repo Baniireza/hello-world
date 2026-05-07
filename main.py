@@ -27,7 +27,7 @@ app = Flask(__name__)
 # HUGGING FACE MODEL
 # =========================
 
-API_URL = "https://api-inference.huggingface.co/models/google/gemma-2b-it"
+API_URL = "https://api-inference.huggingface.co/models/google/gemma-4-31B-it"
 
 headers = {
     "Authorization": f"Bearer {HF_TOKEN}"
