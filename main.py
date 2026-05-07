@@ -17,7 +17,7 @@ client = InferenceClient(
     api_key=HF_TOKEN,
 )
 
-MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
+MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2:featherless-ai"
 
 # ===== PROMPT شخصیت =====
 SYSTEM_PROMPT = """
