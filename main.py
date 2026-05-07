@@ -58,7 +58,7 @@ def webhook():
 def handle_message(message):
     print("پیام دریافت شد:", message.text)  # ← اضافه کن
     reply = get_ai_response(message.text)
-    bot.reply_to(message, reply))
+    bot.reply_to(message, reply)
 
 # ====== ست کردن webhook ======
 @app.route("/set_webhook", methods=["GET"])
