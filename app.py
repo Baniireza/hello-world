@@ -28,7 +28,7 @@ app = Flask(__name__)
 # =========================
 
 client = InferenceClient(
-    api_key=HF_TOKEN
+    token=HF_TOKEN
 )
 
 MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct:novita"
