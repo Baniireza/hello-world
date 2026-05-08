@@ -31,7 +31,7 @@ client = InferenceClient(
     token=HF_TOKEN
 )
 
-MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct:novita"
+MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
 
 # =========================
 # شخصیت ربات
