@@ -112,7 +112,7 @@ def handle_message(message):
 # WEBHOOK
 # ======================
 
-@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
 
     try:
@@ -141,7 +141,7 @@ def set_webhook():
 
     bot.remove_webhook()
 
-    webhook_url = f"{APP_URL}/{TELEGRAM_TOKEN}"
+    webhook_url = f"{APP_URL}/webhook"
 
     result = bot.set_webhook(url=webhook_url)
 
