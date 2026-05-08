@@ -3,29 +3,29 @@ from flask import Flask, request
 import telebot
 from huggingface_hub import InferenceClient
 
-# =========================
+# ======================
 # ENV
-# =========================
+# ======================
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 HF_TOKEN = os.environ["HF_TOKEN"]
 APP_URL = os.environ["APP_URL"]
 
-# =========================
-# TELEGRAM BOT
-# =========================
+# ======================
+# TELEGRAM
+# ======================
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
-# =========================
+# ======================
 # FLASK
-# =========================
+# ======================
 
 app = Flask(__name__)
 
-# =========================
-# HUGGING FACE CLIENT
-# =========================
+# ======================
+# HF CLIENT
+# ======================
 
 client = InferenceClient(
     token=HF_TOKEN
@@ -33,29 +33,24 @@ client = InferenceClient(
 
 MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
 
-# =========================
-# شخصیت ربات
-# =========================
+# ======================
+# SYSTEM PROMPT
+# ======================
 
 SYSTEM_PROMPT = """
-تو یک ربات همراه و صمیمی هستی.
-
-ویژگی‌ها:
-- فارسی محاوره‌ای
-- کوتاه و طبیعی
-- دوستانه
-- بدون قضاوت
-- مناسب گفتگو در گروه تلگرام
-- ایموجی زیاد استفاده نکن
+تو یک ربات صمیمی و دوستانه فارسی هستی.
+کوتاه و طبیعی جواب بده.
 """
 
-# =========================
-# AI RESPONSE
-# =========================
+# ======================
+# AI FUNCTION
+# ======================
 
 def get_ai_response(user_message):
 
     try:
+
+        print("Sending request to HF...")
 
         completion = client.chat.completions.create(
             model=MODEL_NAME,
@@ -69,9 +64,12 @@ def get_ai_response(user_message):
                     "content": user_message
                 }
             ],
-            max_tokens=300,
-            temperature=0.7,
+            max_tokens=200,
+            temperature=0.7
         )
+
+        print("HF RESPONSE:")
+        print(completion)
 
         reply = completion.choices[0].message.content
 
@@ -79,75 +77,87 @@ def get_ai_response(user_message):
 
     except Exception as e:
 
-        print("ERROR:", e)
+        print("AI ERROR:")
+        print(str(e))
 
-        return "فعلا یه مشکلی پیش اومده 😕"
+        return f"خطا: {str(e)}"
 
-# =========================
-# MESSAGE HANDLER
-# =========================
+# ======================
+# TELEGRAM HANDLER
+# ======================
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
 
     try:
 
+        print("NEW MESSAGE")
+
         user_text = message.text
 
-        if not user_text:
-            return
-
-        print("USER:", user_text)
+        print("USER SAID:", user_text)
 
         reply = get_ai_response(user_text)
+
+        print("BOT REPLY:", reply)
 
         bot.reply_to(message, reply)
 
     except Exception as e:
 
-        print("MESSAGE ERROR:", e)
+        print("HANDLER ERROR:")
+        print(str(e))
 
-# =========================
+# ======================
 # WEBHOOK
-# =========================
+# ======================
 
 @app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def webhook():
 
-    json_str = request.get_data().decode("utf-8")
+    try:
 
-    update = telebot.types.Update.de_json(json_str)
+        json_str = request.get_data().decode("utf-8")
 
-    bot.process_new_updates([update])
+        update = telebot.types.Update.de_json(json_str)
 
-    return "OK", 200
+        bot.process_new_updates([update])
 
-# =========================
+        return "OK", 200
+
+    except Exception as e:
+
+        print("WEBHOOK ERROR:")
+        print(str(e))
+
+        return "ERROR", 500
+
+# ======================
 # SET WEBHOOK
-# =========================
+# ======================
 
 @app.route("/set_webhook")
 def set_webhook():
 
-    webhook_url = f"{APP_URL}/{TELEGRAM_TOKEN}"
-
     bot.remove_webhook()
+
+    webhook_url = f"{APP_URL}/{TELEGRAM_TOKEN}"
 
     result = bot.set_webhook(url=webhook_url)
 
     return str(result)
 
-# =========================
+# ======================
 # HOME
-# =========================
+# ======================
 
 @app.route("/")
 def home():
-    return "Llama Bot Running ✅"
+    return "Bot Running ✅"
 
-# =========================
+# ======================
 # RUN
-# =========================
+# ======================
 
 if __name__ == "__main__":
 
