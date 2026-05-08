@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: telegram-llama-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+      - key: HF_TOKEN
+        sync: false
+
+      - key: APP_URL
+        sync: false
