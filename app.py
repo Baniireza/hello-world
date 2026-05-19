@@ -2,6 +2,10 @@ import os
 import requests
 from flask import Flask, request
 import telebot
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+telebot.logger.setLevel(logging.DEBUG)
 
 # ======================
 # ENV
@@ -124,9 +128,16 @@ def webhook():
 
         json_str = request.get_data().decode("utf-8")
 
+        print("RAW UPDATE:")
+        print(json_str)
+
         update = telebot.types.Update.de_json(json_str)
 
+        print("UPDATE PARSED")
+
         bot.process_new_updates([update])
+
+        print("UPDATE PROCESSED")
 
         return "OK", 200
 
