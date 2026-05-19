@@ -1,33 +1,32 @@
 import os
 import requests
 from flask import Flask, request
-import telebot
-import logging
 
-logging.basicConfig(level=logging.INFO)
-telebot.logger.setLevel(logging.INFO)
+app = Flask(__name__)
+
+# ======================
+# ENV
+# ======================
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 APP_URL = os.environ.get("APP_URL")
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-app = Flask(__name__)
+# ======================
+# AI SETTINGS
+# ======================
 
 MODEL_NAME = "openai/gpt-oss-120b:free"
 
 SYSTEM_PROMPT = "تو یک ربات فارسی صمیمی هستی. کوتاه و دوستانه جواب بده."
 
-
 # ======================
-# AI FUNCTION (FIXED)
+# OPENROUTER
 # ======================
 
-def get_ai_response(user_message):
+def get_ai_response(user_text):
 
     try:
-        print("➡️ Sending request to OpenRouter...")
-
         r = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
@@ -38,7 +37,7 @@ def get_ai_response(user_message):
                 "model": MODEL_NAME,
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message}
+                    {"role": "user", "content": user_text}
                 ],
                 "max_tokens": 200,
                 "temperature": 0.7
@@ -46,71 +45,53 @@ def get_ai_response(user_message):
             timeout=60
         )
 
-        print("STATUS:", r.status_code)
+        print("OPENROUTER STATUS:", r.status_code)
 
-        # 🔥 اگر خطا بود
         if r.status_code != 200:
-            print("OPENROUTER ERROR:", r.text)
+            print("ERROR:", r.text)
             return "مشکل در اتصال به AI 😕"
 
-        data = r.json()
-
-        reply = data["choices"][0]["message"]["content"]
-
-        return reply
+        return r.json()["choices"][0]["message"]["content"]
 
     except Exception as e:
-        print("AI ERROR:", str(e))
-        return "خطا در پردازش AI"
+        print("AI ERROR:", e)
+        return "خطا در AI"
 
 
 # ======================
-# MESSAGE HANDLER (FIXED)
-# ======================
-
-@bot.message_handler(func=lambda m: True)
-def handle_message(message):
-
-    try:
-        print("NEW MESSAGE")
-
-        # 🔥 FIX: جلوگیری از None
-        user_text = message.text or ""
-
-        if not user_text.strip():
-            bot.reply_to(message, "فقط متن بفرست 🙂")
-            return
-
-        print("USER:", user_text)
-
-        reply = get_ai_response(user_text)
-
-        print("BOT:", reply)
-
-        bot.send_message(message.chat.id, reply)
-
-    except Exception as e:
-        print("HANDLER ERROR:", str(e))
-
-
-# ======================
-# WEBHOOK (SIMPLIFIED)
+# WEBHOOK
 # ======================
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
+
     try:
-        json_str = request.get_json(force=True)
+        update = request.get_json()
 
-        print("RAW UPDATE:", json_str)
+        print("RAW UPDATE:", update)
 
-        update = telebot.types.Update.de_json(json_str)
+        message = update.get("message", {})
+        text = message.get("text")
+        chat_id = message.get("chat", {}).get("id")
 
-        print("PARSED")
+        # ignore empty messages
+        if not text or not chat_id:
+            return "OK", 200
 
-        bot.process_new_updates([update])
+        print("USER:", text)
 
-        print("PROCESSED")
+        reply = get_ai_response(text)
+
+        print("BOT:", reply)
+
+        # send message to Telegram
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": reply
+            }
+        )
 
         return "OK", 200
 
@@ -127,20 +108,32 @@ def webhook():
 def set_webhook():
 
     try:
-        bot.remove_webhook()
+        url = f"{APP_URL}/webhook"
 
-        webhook_url = f"{APP_URL}/webhook"
+        r = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
+            params={"url": url}
+        )
 
-        return str(bot.set_webhook(url=webhook_url))
+        return r.text
 
     except Exception as e:
         return str(e)
 
 
+# ======================
+# HOME
+# ======================
+
 @app.route("/")
 def home():
-    return "Bot Running ✅"
+    return "Bot is running ✅"
 
+
+# ======================
+# RUN
+# ======================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
