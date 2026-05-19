@@ -4,52 +4,32 @@ from flask import Flask, request
 import telebot
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
-telebot.logger.setLevel(logging.DEBUG)
-
-# ======================
-# ENV
-# ======================
+logging.basicConfig(level=logging.INFO)
+telebot.logger.setLevel(logging.INFO)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 APP_URL = os.environ.get("APP_URL")
 
-# ======================
-# TELEGRAM
-# ======================
-
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
-
-# ======================
-# FLASK
-# ======================
-
 app = Flask(__name__)
-
-# ======================
-# MODEL
-# ======================
 
 MODEL_NAME = "openai/gpt-oss-120b:free"
 
-SYSTEM_PROMPT = """
-تو یک ربات فارسی صمیمی و طبیعی هستی.
-کوتاه و دوستانه جواب بده.
-"""
+SYSTEM_PROMPT = "تو یک ربات فارسی صمیمی هستی. کوتاه و دوستانه جواب بده."
+
 
 # ======================
-# AI FUNCTION
+# AI FUNCTION (FIXED)
 # ======================
 
 def get_ai_response(user_message):
 
     try:
+        print("➡️ Sending request to OpenRouter...")
 
-        print("Sending request to OpenRouter...")
-
-        response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
+        r = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "Content-Type": "application/json"
@@ -57,14 +37,8 @@ def get_ai_response(user_message):
             json={
                 "model": MODEL_NAME,
                 "messages": [
-                    {
-                        "role": "system",
-                        "content": SYSTEM_PROMPT
-                    },
-                    {
-                        "role": "user",
-                        "content": user_message
-                    }
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message}
                 ],
                 "max_tokens": 200,
                 "temperature": 0.7
@@ -72,37 +46,40 @@ def get_ai_response(user_message):
             timeout=60
         )
 
-        print("STATUS CODE:")
-        print(response.status_code)
+        print("STATUS:", r.status_code)
 
-        print("RAW RESPONSE:")
-        print(response.text)
+        # 🔥 اگر خطا بود
+        if r.status_code != 200:
+            print("OPENROUTER ERROR:", r.text)
+            return "مشکل در اتصال به AI 😕"
 
-        data = response.json()
+        data = r.json()
 
         reply = data["choices"][0]["message"]["content"]
 
         return reply
 
     except Exception as e:
+        print("AI ERROR:", str(e))
+        return "خطا در پردازش AI"
 
-        print("AI ERROR:")
-        print(str(e))
-
-        return f"خطا: {str(e)}"
 
 # ======================
-# MESSAGE HANDLER
+# MESSAGE HANDLER (FIXED)
 # ======================
 
-@bot.message_handler(func=lambda message: True)
+@bot.message_handler(func=lambda m: True)
 def handle_message(message):
 
     try:
+        print("NEW MESSAGE")
 
-        print("NEW MESSAGE RECEIVED")
+        # 🔥 FIX: جلوگیری از None
+        user_text = message.text or ""
 
-        user_text = message.text
+        if not user_text.strip():
+            bot.reply_to(message, "فقط متن بفرست 🙂")
+            return
 
         print("USER:", user_text)
 
@@ -110,43 +87,32 @@ def handle_message(message):
 
         print("BOT:", reply)
 
-        bot.reply_to(message, reply)
+        bot.send_message(message.chat.id, reply)
 
     except Exception as e:
+        print("HANDLER ERROR:", str(e))
 
-        print("HANDLER ERROR:")
-        print(str(e))
 
 # ======================
-# WEBHOOK
+# WEBHOOK (SIMPLIFIED)
 # ======================
 
-@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
 
     try:
-
-        json_str = request.get_data().decode("utf-8")
-
-        print("RAW UPDATE:")
-        print(json_str)
-
-        update = telebot.types.Update.de_json(json_str)
-
-        print("UPDATE PARSED")
+        update = telebot.types.Update.de_json(
+            request.get_data().decode("utf-8")
+        )
 
         bot.process_new_updates([update])
-
-        print("UPDATE PROCESSED")
 
         return "OK", 200
 
     except Exception as e:
-
-        print("WEBHOOK ERROR:")
-        print(str(e))
-
+        print("WEBHOOK ERROR:", str(e))
         return "ERROR", 500
+
 
 # ======================
 # SET WEBHOOK
@@ -156,33 +122,20 @@ def webhook():
 def set_webhook():
 
     try:
-
         bot.remove_webhook()
 
-        webhook_url = f"{APP_URL}/{TELEGRAM_TOKEN}"
+        webhook_url = f"{APP_URL}/webhook"
 
-        result = bot.set_webhook(url=webhook_url)
-
-        return str(result)
+        return str(bot.set_webhook(url=webhook_url))
 
     except Exception as e:
-
         return str(e)
 
-# ======================
-# HOME
-# ======================
 
 @app.route("/")
 def home():
-    return "Psycho Bot Running ✅"
+    return "Bot Running ✅"
 
-# ======================
-# RUN
-# ======================
 
 if __name__ == "__main__":
-
-    port = int(os.environ.get("PORT", 10000))
-
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
