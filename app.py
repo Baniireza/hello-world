@@ -99,18 +99,23 @@ def handle_message(message):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-
     try:
-        update = telebot.types.Update.de_json(
-            request.get_data().decode("utf-8")
-        )
+        json_str = request.get_json(force=True)
+
+        print("RAW UPDATE:", json_str)
+
+        update = telebot.types.Update.de_json(json_str)
+
+        print("PARSED")
 
         bot.process_new_updates([update])
+
+        print("PROCESSED")
 
         return "OK", 200
 
     except Exception as e:
-        print("WEBHOOK ERROR:", str(e))
+        print("WEBHOOK ERROR:", e)
         return "ERROR", 500
 
 
