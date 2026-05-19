@@ -4,11 +4,11 @@ from flask import Flask, request
 import telebot
 
 # ======================
-# ENV VARIABLES
+# ENV
 # ======================
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 APP_URL = os.environ.get("APP_URL")
 
 # ======================
@@ -24,10 +24,10 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
 # ======================
-# OPENROUTER
+# MODEL
 # ======================
 
-MODEL = "inclusionai/ring-2.6-1t:free"
+MODEL_NAME = "inclusionai/ring-2.6-1t:free"
 
 SYSTEM_PROMPT = """
 تو یک ربات فارسی صمیمی و طبیعی هستی.
@@ -35,21 +35,23 @@ SYSTEM_PROMPT = """
 """
 
 # ======================
-# AI RESPONSE
+# AI FUNCTION
 # ======================
 
 def get_ai_response(user_message):
 
     try:
 
+        print("Sending request to OpenRouter...")
+
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": MODEL,
+                "model": MODEL_NAME,
                 "messages": [
                     {
                         "role": "system",
@@ -60,24 +62,30 @@ def get_ai_response(user_message):
                         "content": user_message
                     }
                 ],
-                "temperature": 0.7,
-                "max_tokens": 200
+                "max_tokens": 200,
+                "temperature": 0.7
             },
             timeout=60
         )
 
+        print("STATUS CODE:")
+        print(response.status_code)
+
+        print("RAW RESPONSE:")
+        print(response.text)
+
         data = response.json()
 
-        print(data)
+        reply = data["choices"][0]["message"]["content"]
 
-        return data["choices"][0]["message"]["content"]
+        return reply
 
     except Exception as e:
 
-        print("OPENROUTER ERROR:")
+        print("AI ERROR:")
         print(str(e))
 
-        return "فعلاً مغزم هنگ کرده 🥲"
+        return f"خطا: {str(e)}"
 
 # ======================
 # MESSAGE HANDLER
@@ -88,13 +96,15 @@ def handle_message(message):
 
     try:
 
-        print("NEW MESSAGE")
+        print("NEW MESSAGE RECEIVED")
 
         user_text = message.text
 
-        print(user_text)
+        print("USER:", user_text)
 
         reply = get_ai_response(user_text)
+
+        print("BOT:", reply)
 
         bot.reply_to(message, reply)
 
@@ -154,7 +164,6 @@ def set_webhook():
 
 @app.route("/")
 def home():
-
     return "Psycho Bot Running ✅"
 
 # ======================
