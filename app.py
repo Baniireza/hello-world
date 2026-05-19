@@ -1,15 +1,15 @@
 import os
+import requests
 from flask import Flask, request
 import telebot
-from huggingface_hub import InferenceClient
 
 # ======================
-# ENV
+# ENV VARIABLES
 # ======================
 
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-HF_TOKEN = os.environ["HF_TOKEN"]
-APP_URL = os.environ["APP_URL"]
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY")
+APP_URL = os.environ.get("APP_URL")
 
 # ======================
 # TELEGRAM
@@ -24,66 +24,63 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
 # ======================
-# HF CLIENT
+# OPENROUTER
 # ======================
 
-client = InferenceClient(
-    token=HF_TOKEN
-)
-
-MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct:scaleway"
-
-# ======================
-# SYSTEM PROMPT
-# ======================
+MODEL = "inclusionai/ring-2.6-1t:free"
 
 SYSTEM_PROMPT = """
-تو یک ربات صمیمی و دوستانه فارسی هستی.
-کوتاه و طبیعی جواب بده.
+تو یک ربات فارسی صمیمی و طبیعی هستی.
+کوتاه و دوستانه جواب بده.
 """
 
 # ======================
-# AI FUNCTION
+# AI RESPONSE
 # ======================
 
 def get_ai_response(user_message):
 
     try:
 
-        print("Sending request to HF...")
-
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT
-                },
-                {
-                    "role": "user",
-                    "content": user_message
-                }
-            ],
-            max_tokens=200,
-            temperature=0.7
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT
+                    },
+                    {
+                        "role": "user",
+                        "content": user_message
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 200
+            },
+            timeout=60
         )
 
-        print("HF RESPONSE:")
-        print(completion)
+        data = response.json()
 
-        reply = completion.choices[0].message.content
+        print(data)
 
-        return reply
+        return data["choices"][0]["message"]["content"]
 
     except Exception as e:
 
-        print("AI ERROR:")
+        print("OPENROUTER ERROR:")
         print(str(e))
 
-        return f"خطا: {str(e)}"
+        return "فعلاً مغزم هنگ کرده 🥲"
 
 # ======================
-# TELEGRAM HANDLER
+# MESSAGE HANDLER
 # ======================
 
 @bot.message_handler(func=lambda message: True)
@@ -95,11 +92,9 @@ def handle_message(message):
 
         user_text = message.text
 
-        print("USER SAID:", user_text)
+        print(user_text)
 
         reply = get_ai_response(user_text)
-
-        print("BOT REPLY:", reply)
 
         bot.reply_to(message, reply)
 
@@ -112,7 +107,7 @@ def handle_message(message):
 # WEBHOOK
 # ======================
 
-@app.route("/webhook", methods=["POST"])
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
 def webhook():
 
     try:
@@ -139,13 +134,19 @@ def webhook():
 @app.route("/set_webhook")
 def set_webhook():
 
-    bot.remove_webhook()
+    try:
 
-    webhook_url = f"{APP_URL}/webhook"
+        bot.remove_webhook()
 
-    result = bot.set_webhook(url=webhook_url)
+        webhook_url = f"{APP_URL}/{TELEGRAM_TOKEN}"
 
-    return str(result)
+        result = bot.set_webhook(url=webhook_url)
+
+        return str(result)
+
+    except Exception as e:
+
+        return str(e)
 
 # ======================
 # HOME
@@ -153,7 +154,8 @@ def set_webhook():
 
 @app.route("/")
 def home():
-    return "Bot Running ✅"
+
+    return "Psycho Bot Running ✅"
 
 # ======================
 # RUN
@@ -161,6 +163,6 @@ def home():
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
 
     app.run(host="0.0.0.0", port=port)
