@@ -31,7 +31,7 @@ app = Flask(__name__)
 # MODEL
 # ======================
 
-MODEL_NAME = "inclusionai/ring-2.6-1t:free"
+MODEL_NAME = "openai/gpt-oss-120b:free"
 
 SYSTEM_PROMPT = """
 تو یک ربات فارسی صمیمی و طبیعی هستی.
