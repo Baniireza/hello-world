@@ -198,14 +198,12 @@ def get_ai_response(chat_id, user_text):
 
         for m in memory.get(chat_id, []):
 
-            role = "user" if m["role"] == "user" else "model"
-
-            contents.append({
-                "role": role,
-                "parts": [{
-                    "text": m["content"]
-                }]
-            })
+    contents.append({
+        "role": "user",
+        "parts": [{
+            "text": f"{m['role']}: {m['content']}"
+        }]
+    })
 
         for model in MODELS:
 
