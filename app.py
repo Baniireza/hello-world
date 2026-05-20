@@ -132,20 +132,24 @@ def get_ai_response(chat_id, user_text):
         print("FULL RESPONSE:", data)
 
         # safer parsing
-        reply = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content")
-        )
+message_data = (
+    data.get("choices", [{}])[0]
+    .get("message", {})
+)
 
-        # fallback
-        if not reply:
+reply = (
+    message_data.get("content")
+    or message_data.get("reasoning")
+    or ""
+)
 
-            # some models return text elsewhere
-            try:
-                reply = data["choices"][0]["text"]
-            except:
-                reply = "مغزم هنگ کرد یه لحظه ارتباطم با سرور قطع شد 😭"
+# fallback
+if not reply:
+
+    try:
+        reply = data["choices"][0]["text"]
+    except:
+        reply = "مغزم هنگ کرد یه لحظه 😭"
 
         # clean weird spaces
         reply = str(reply).strip()
