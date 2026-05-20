@@ -98,20 +98,28 @@ def get_ai_response(chat_id, text):
         update_mood(chat_id, text)
         add_to_memory(chat_id, "user", text)
 
-        messages = [{"role": "system", "content": build_prompt(chat_id)}]
-        messages += memory.get(chat_id, [])
+        prompt = build_prompt(chat_id)
+
+        # تبدیل chat memory به متن ساده (مهم!)
+        conversation = ""
+        for m in memory.get(chat_id, []):
+            role = "User" if m["role"] == "user" else "Bot"
+            conversation += f"{role}: {m['content']}\n"
+
+        full_prompt = f"{prompt}\n\n{conversation}\nUser: {text}\nAssistant:"
 
         r = requests.post(
-            "https://api-inference.huggingface.co/v1/chat/completions",
+            f"https://api-inference.huggingface.co/models/{HF_MODEL}",
             headers={
-                "Authorization": f"Bearer {HF_API_KEY}",
-                "Content-Type": "application/json"
+                "Authorization": f"Bearer {HF_API_KEY}"
             },
             json={
-                "model": HF_MODEL,
-                "messages": messages,
-                "temperature": 0.8,
-                "max_tokens": 180
+                "inputs": full_prompt,
+                "parameters": {
+                    "max_new_tokens": 180,
+                    "temperature": 0.8,
+                    "return_full_text": False
+                }
             },
             timeout=60
         )
@@ -122,14 +130,13 @@ def get_ai_response(chat_id, text):
 
         data = r.json()
 
-        reply = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        ).strip()
+        # HF response format
+        if isinstance(data, list) and "generated_text" in data[0]:
+            reply = data[0]["generated_text"]
+        else:
+            reply = str(data)
 
-        if not reply:
-            return "یه لحظه مغزم هنگ کرد 😵"
+        reply = reply.strip()
 
         add_to_memory(chat_id, "assistant", reply)
         return reply
