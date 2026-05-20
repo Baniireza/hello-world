@@ -97,12 +97,13 @@ BASE_PROMPT = """
 - با ادمین‌ها محترمانه رفتار کن
 """
 
+
 def build_prompt(chat_id):
     return BASE_PROMPT + "\nحالت کاربر: " + mood.get(chat_id, "neutral")
 
 
 # ======================
-# MODELS (ORDER FIXED)
+# MODELS
 # ======================
 
 MODELS = [
@@ -123,7 +124,7 @@ def call_gemini(model, contents):
         "contents": contents,
         "generationConfig": {
             "temperature": 0.9,
-            "maxOutputTokens": 768,   # 🔥 مهم: جلوگیری از نصف شدن پیام
+            "maxOutputTokens": 900,   # 🔥 مهم‌تر برای جلوگیری از نصف شدن
             "topP": 0.95
         }
     }
@@ -131,8 +132,10 @@ def call_gemini(model, contents):
     return requests.post(url, json=payload, timeout=60)
 
 
-def is_cut_off(text):
+def is_bad_output(text):
     if not text:
+        return True
+    if len(text.strip()) < 10:   # 🔥 جلوگیری از جواب‌های نصفه
         return True
     return text.strip()[-1] not in ".!?؟"
 
@@ -158,27 +161,23 @@ def get_ai_response(chat_id, user_text):
                 "parts": [{"text": m["content"]}]
             })
 
-        last_error = None
-
         for model in MODELS:
             r = call_gemini(model, contents)
 
             print(f"MODEL {model} STATUS:", r.status_code)
 
             if r.status_code != 200:
-                last_error = r.text
                 continue
 
             data = r.json()
-
             if "candidates" not in data:
                 continue
 
             reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-            # 🔥 FIX مهم: اگر پیام قطع شده بود دوباره درخواست بزن
-            if is_cut_off(reply):
-                print("⚠️ cut-off detected, retrying...")
+            # 🔥 جلوگیری از پیام نصفه
+            if is_bad_output(reply):
+                print("⚠️ retry due to cut output")
                 r2 = call_gemini(model, contents)
                 if r2.status_code == 200:
                     data2 = r2.json()
