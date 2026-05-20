@@ -56,9 +56,10 @@ def update_mood(chat_id, text):
 BASE_PROMPT = """
 اسم تو سایکو هست.
 
-یک دوست صمیمی و تراپیست‌طور برای گروه فارسی درباره AVPD.
+یک دوست صمیمی و تراپیست‌طور درباره AVPD و دلبستگی اجتنابی.
 
-کوتاه، محاوره‌ای، طبیعی حرف بزن.
+کوتاه، طبیعی، محاوره‌ای فارسی حرف بزن.
+خیلی رسمی نباش.
 """
 
 
@@ -67,31 +68,39 @@ def build_prompt(chat_id):
 
 
 # ======================
-# GEMINI MODEL (FIXED)
+# MODEL
 # ======================
 
-MODEL = "gemini-2.5-flash"   # 👈 مهم: اینو آپدیت کردم
+MODEL = "gemini-2.5-flash"
 
+
+# ======================
+# GEMINI CALL (FIXED)
+# ======================
 
 def get_ai_response(chat_id, user_text):
     try:
         print("➡️ AI request (Gemini)...")
 
         update_mood(chat_id, user_text)
+
+        # user message first
         add_to_memory(chat_id, "user", user_text)
 
         contents = []
 
-        # prompt as first message
+        # ⚠️ Gemini SYSTEM workaround (correct way)
         contents.append({
             "role": "user",
             "parts": [{"text": build_prompt(chat_id)}]
         })
 
-        # memory
+        # memory with correct roles
         for m in memory.get(chat_id, []):
+            role = "user" if m["role"] == "user" else "model"
+
             contents.append({
-                "role": m["role"],
+                "role": role,
                 "parts": [{"text": m["content"]}]
             })
 
@@ -120,8 +129,11 @@ def get_ai_response(chat_id, user_text):
             if "candidates" in data else ""
         ).strip()
 
-        add_to_memory(chat_id, "assistant", reply)
-        return reply or "یه لحظه مغزم هنگ کرد 😵"
+        if not reply:
+            return "یه لحظه مغزم هنگ کرد 😵"
+
+        add_to_memory(chat_id, "model", reply)
+        return reply
 
     except Exception as e:
         print("AI ERROR:", e)
@@ -176,6 +188,10 @@ def webhook():
         return "ERROR", 500
 
 
+# ======================
+# ROUTES
+# ======================
+
 @app.route("/")
 def home():
     return "Psycho Bot Running ✅"
@@ -184,12 +200,18 @@ def home():
 @app.route("/set_webhook")
 def set_webhook():
     url = f"{APP_URL}/webhook"
+
     r = requests.get(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
         params={"url": url}
     )
+
     return r.text
 
+
+# ======================
+# RUN
+# ======================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
