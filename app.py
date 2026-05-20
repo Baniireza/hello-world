@@ -177,7 +177,7 @@ def webhook():
 
         print("USER:", text)
 
-        reply = get_gemini_response(chat_id, text)
+        reply = get_ai_response(chat_id, text)
 
         print("BOT:", reply)
 
