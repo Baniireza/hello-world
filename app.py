@@ -41,7 +41,7 @@ def add_to_memory(chat_id, role, content):
 # MODEL
 # ======================
 
-MODEL_NAME = "z-ai/glm-4.5-air:free"
+MODEL_NAME = "google/gemma-4-31b-it:free"
 SYSTEM_PROMPT = """
 اسم تو سایکو یا psycho هست.
 
