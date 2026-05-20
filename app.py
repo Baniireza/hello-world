@@ -21,6 +21,9 @@ memory = {}
 mood = {}
 MAX_MEMORY = 12
 
+last_message_time = {}
+MIN_DELAY = 2  # seconds
+
 
 def add_to_memory(chat_id, role, content):
     if not content:
@@ -124,7 +127,7 @@ def call_gemini(model, contents):
         "contents": contents,
         "generationConfig": {
             "temperature": 0.9,
-            "maxOutputTokens": 900,   # 🔥 مهم‌تر برای جلوگیری از نصف شدن
+            "maxOutputTokens": 900,
             "topP": 0.95
         }
     }
@@ -135,7 +138,7 @@ def call_gemini(model, contents):
 def is_bad_output(text):
     if not text:
         return True
-    if len(text.strip()) < 10:   # 🔥 جلوگیری از جواب‌های نصفه
+    if len(text.strip()) < 10:
         return True
     return text.strip()[-1] not in ".!?؟"
 
@@ -164,8 +167,6 @@ def get_ai_response(chat_id, user_text):
         for model in MODELS:
             r = call_gemini(model, contents)
 
-            print(f"MODEL {model} STATUS:", r.status_code)
-
             if r.status_code != 200:
                 continue
 
@@ -175,9 +176,7 @@ def get_ai_response(chat_id, user_text):
 
             reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-            # 🔥 جلوگیری از پیام نصفه
             if is_bad_output(reply):
-                print("⚠️ retry due to cut output")
                 r2 = call_gemini(model, contents)
                 if r2.status_code == 200:
                     data2 = r2.json()
@@ -189,11 +188,11 @@ def get_ai_response(chat_id, user_text):
             add_to_memory(chat_id, "model", reply)
             return reply
 
-        return "یه مشکلی از سمت هوش مصنوعی پیش اومده 😵"
+        return "یه مشکلی پیش اومده 😵"
 
     except Exception as e:
         print("AI ERROR:", e)
-        return "مغزم قاط زد 😭"
+        return "خطا 😭"
 
 
 # ======================
@@ -206,14 +205,48 @@ def webhook():
     message = update.get("message", {})
 
     text = message.get("text", "")
-    chat_id = message.get("chat", {}).get("id")
-    chat_type = message.get("chat", {}).get("type", "")
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
+    chat_type = chat.get("type", "")
 
     if not text or not chat_id:
         return "OK", 200
 
-    should_reply = chat_type == "private" or any(
-        t in text.lower() for t in ["psycho", "سایکو"]
+    # ======================
+    # ONLY GROUPS
+    # ======================
+    if chat_type not in ["group", "supergroup"]:
+        return "OK", 200
+
+    # ======================
+    # RATE LIMIT
+    # ======================
+    now = time.time()
+    if now - last_message_time.get(chat_id, 0) < MIN_DELAY:
+        return "OK", 200
+
+    last_message_time[chat_id] = now
+
+    # ======================
+    # REPLY DETECTION
+    # ======================
+    replied_to_bot = False
+
+    reply_msg = message.get("reply_to_message")
+    if reply_msg:
+        from_user = reply_msg.get("from", {})
+        username = from_user.get("username", "").lower()
+
+        if username == "PsychoTeraphist_bot":
+            replied_to_bot = True
+
+    # ======================
+    # TRIGGERS
+    # ======================
+    should_reply = (
+        replied_to_bot
+        or "psycho" in text.lower()
+        or "سایکو" in text.lower()
     )
 
     if not should_reply:
@@ -226,8 +259,10 @@ def webhook():
         json={
             "chat_id": chat_id,
             "text": reply,
-            "reply_to_message_id": message.get("message_id")
-        }
+            "reply_to_message_id": message.get("message_id"),
+            "allow_sending_without_reply": True
+        },
+        timeout=30
     )
 
     return "OK", 200
