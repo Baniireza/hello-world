@@ -86,7 +86,7 @@ def build_prompt(chat_id):
 
 
 # ======================
-# GEMINI CALL
+# GEMINI CALL (FIXED)
 # ======================
 
 def get_ai_response(chat_id, user_text):
@@ -98,7 +98,7 @@ def get_ai_response(chat_id, user_text):
 
         contents = []
 
-        # system prompt
+        # system prompt (بهتره role=user باشه)
         contents.append({
             "role": "user",
             "parts": [{"text": build_prompt(chat_id)}]
@@ -111,7 +111,8 @@ def get_ai_response(chat_id, user_text):
                 "parts": [{"text": m["content"]}]
             })
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={os.environ.get('GEMINI_API_KEY')}"
+        # 🔥 IMPORTANT FIX: v1 instead of v1beta
+        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
         payload = {
             "contents": contents,
@@ -131,10 +132,11 @@ def get_ai_response(chat_id, user_text):
 
         data = r.json()
 
-        reply = (
-            data["candidates"][0]["content"]["parts"][0]["text"]
-            if "candidates" in data else ""
-        ).strip()
+        reply = ""
+        try:
+            reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except:
+            reply = ""
 
         if not reply:
             return "یه لحظه مغزم هنگ کرد 😵"
@@ -198,7 +200,7 @@ def webhook():
 
 
 # ======================
-# WEB
+# SET WEBHOOK
 # ======================
 
 @app.route("/set_webhook")
@@ -222,6 +224,10 @@ def ping():
 def home():
     return "Psycho Bot Running ✅"
 
+
+# ======================
+# RUN
+# ======================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
