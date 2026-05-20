@@ -102,18 +102,16 @@ def get_ai_response(chat_id, text):
         messages += memory.get(chat_id, [])
 
         r = requests.post(
-            f"https://api-inference.huggingface.co/models/{HF_MODEL}",
+            "https://api-inference.huggingface.co/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {HF_API_KEY}"
+                "Authorization": f"Bearer {HF_API_KEY}",
+                "Content-Type": "application/json"
             },
             json={
-                "inputs": messages,
-                "parameters": {
-                    "max_new_tokens": 180,
-                    "temperature": 0.8,
-                    "top_p": 0.9,
-                    "return_full_text": False
-                }
+                "model": HF_MODEL,
+                "messages": messages,
+                "temperature": 0.8,
+                "max_tokens": 180
             },
             timeout=60
         )
@@ -124,13 +122,14 @@ def get_ai_response(chat_id, text):
 
         data = r.json()
 
-        # HF output parsing
-        if isinstance(data, list) and "generated_text" in data[0]:
-            reply = data[0]["generated_text"]
-        else:
-            reply = str(data)
+        reply = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        ).strip()
 
-        reply = reply.strip()
+        if not reply:
+            return "یه لحظه مغزم هنگ کرد 😵"
 
         add_to_memory(chat_id, "assistant", reply)
         return reply
