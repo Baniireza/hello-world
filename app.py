@@ -125,7 +125,7 @@ def get_ai_response(chat_id, user_text):
 
         if r.status_code != 200:
             print("ERROR:", r.text)
-            return "یه مشکلی پیش اومد 😵"
+            return "یه مشکلی پیش اومده 😵"
 
         data = r.json()
 
@@ -145,7 +145,7 @@ def get_ai_response(chat_id, user_text):
             try:
                 reply = data["choices"][0]["text"]
             except:
-                reply = "مغزم هنگ کرد یه لحظه 😭"
+                reply = "مغزم هنگ کرد یه لحظه ارتباطم با سرور قطع شد 😭"
 
         # clean weird spaces
         reply = str(reply).strip()
