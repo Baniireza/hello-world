@@ -88,20 +88,14 @@ SYSTEM_PROMPT = """
 def get_ai_response(chat_id, user_text):
 
     try:
-
         print("➡️ OpenRouter request...")
 
-        # save user message
         add_to_memory(chat_id, "user", user_text)
 
         messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            }
+            {"role": "system", "content": SYSTEM_PROMPT}
         ]
 
-        # memory
         if chat_id in memory:
             messages += memory[chat_id]
 
@@ -128,41 +122,33 @@ def get_ai_response(chat_id, user_text):
             return "یه مشکلی پیش اومده 😵"
 
         data = r.json()
-
         print("FULL RESPONSE:", data)
 
-        # safer parsing
-message_data = (
-    data.get("choices", [{}])[0]
-    .get("message", {})
-)
+        message_data = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+        )
 
-reply = (
-    message_data.get("content")
-    or message_data.get("reasoning")
-    or ""
-)
+        reply = (
+            message_data.get("content")
+            or message_data.get("reasoning")
+            or ""
+        )
 
-# fallback
-if not reply:
+        # fallback
+        if not reply:
+            try:
+                reply = data["choices"][0].get("text", "")
+            except:
+                reply = "مغزم هنگ کرد یه لحظه 😭"
 
-    try:
-        reply = data["choices"][0]["text"]
-    except:
-        reply = "مغزم هنگ کرد یه لحظه 😭"
-
-        # clean weird spaces
         reply = str(reply).strip()
 
-        # save bot message
         add_to_memory(chat_id, "assistant", reply)
-
         return reply
 
     except Exception as e:
-
         print("AI ERROR:", e)
-
         return "مغزم قاط زد 😭"
 
 
