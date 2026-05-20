@@ -17,9 +17,13 @@ APP_URL = os.environ.get("APP_URL")
 # ======================
 
 memory = {}
-MAX_MEMORY = 10
+MAX_MEMORY = 12
+
 
 def add_to_memory(chat_id, role, content):
+
+    if not content:
+        return
 
     if chat_id not in memory:
         memory[chat_id] = []
@@ -29,7 +33,7 @@ def add_to_memory(chat_id, role, content):
         "content": content
     })
 
-    # keep only last messages
+    # keep last messages
     memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
 
 
@@ -38,7 +42,6 @@ def add_to_memory(chat_id, role, content):
 # ======================
 
 MODEL_NAME = "z-ai/glm-4.5-air:free"
-
 SYSTEM_PROMPT = """
 اسم تو سایکو یا psycho هست.
 
@@ -88,7 +91,7 @@ def get_ai_response(chat_id, user_text):
 
         print("➡️ OpenRouter request...")
 
-        # save user msg
+        # save user message
         add_to_memory(chat_id, "user", user_text)
 
         messages = [
@@ -98,7 +101,7 @@ def get_ai_response(chat_id, user_text):
             }
         ]
 
-        # add memory
+        # memory
         if chat_id in memory:
             messages += memory[chat_id]
 
@@ -111,9 +114,9 @@ def get_ai_response(chat_id, user_text):
             json={
                 "model": MODEL_NAME,
                 "messages": messages,
-                "temperature": 0.7,
-                "top_p": 0.8,
-                "max_tokens": 120
+                "temperature": 0.8,
+                "top_p": 0.9,
+                "max_tokens": 150
             },
             timeout=60
         )
@@ -122,13 +125,32 @@ def get_ai_response(chat_id, user_text):
 
         if r.status_code != 200:
             print("ERROR:", r.text)
-            return "یه مشکلی پیش اومد 😭"
+            return "یه مشکلی پیش اومد 😵"
 
         data = r.json()
 
-        reply = data["choices"][0]["message"]["content"]
+        print("FULL RESPONSE:", data)
 
-        # save bot msg
+        # safer parsing
+        reply = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content")
+        )
+
+        # fallback
+        if not reply:
+
+            # some models return text elsewhere
+            try:
+                reply = data["choices"][0]["text"]
+            except:
+                reply = "مغزم هنگ کرد یه لحظه 😭"
+
+        # clean weird spaces
+        reply = str(reply).strip()
+
+        # save bot message
         add_to_memory(chat_id, "assistant", reply)
 
         return reply
@@ -137,7 +159,7 @@ def get_ai_response(chat_id, user_text):
 
         print("AI ERROR:", e)
 
-        return "مغزم هنگ کرد یه لحظه 😭"
+        return "مغزم قاط زد 😭"
 
 
 # ======================
@@ -179,12 +201,17 @@ def webhook():
 
         else:
 
-            if (
-                "psycho" in text_lower
-                or "سایکو" in text_lower
-                or "@PsychoTeraphist_bot" in text_lower
-            ):
-                should_reply = True
+            triggers = [
+                "psycho",
+                "سایکو",
+                "@psychoteraphist_bot"
+            ]
+
+            for trigger in triggers:
+
+                if trigger in text_lower:
+                    should_reply = True
+                    break
 
         if not should_reply:
             return "OK", 200
@@ -195,7 +222,7 @@ def webhook():
 
         print("BOT:", reply)
 
-        # send to telegram
+        # send message
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={
