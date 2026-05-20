@@ -189,7 +189,7 @@ def get_ai_response(chat_id, user_text):
             add_to_memory(chat_id, "model", reply)
             return reply
 
-        return "یه مشکلی از سمت هوش مصنوعی پیش اومده 😵"
+        return "دسترسی من به هوش مصنوعی موقتا قطع شده. کمی بعد امتحان کن 😵"
 
     except Exception as e:
         print("AI ERROR:", e)
