@@ -196,7 +196,7 @@ def get_ai_response(chat_id, user_text):
             }]
         }]
 
-        for m in memory.get(chat_id, []):
+for m in memory.get(chat_id, []):
 
     contents.append({
         "role": "user",
