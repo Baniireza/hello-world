@@ -9,10 +9,8 @@ app = Flask(__name__)
 # ======================
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-HF_API_KEY = os.environ.get("HF_API_KEY")
+HF_TOKEN = os.environ.get("HF_TOKEN")
 APP_URL = os.environ.get("APP_URL")
-
-HF_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
 
 # ======================
 # MEMORY + MOOD
@@ -27,9 +25,7 @@ def add_to_memory(chat_id, role, content):
     if not content:
         return
 
-    if chat_id not in memory:
-        memory[chat_id] = []
-
+    memory.setdefault(chat_id, [])
     memory[chat_id].append({"role": role, "content": content})
     memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
 
@@ -37,10 +33,9 @@ def add_to_memory(chat_id, role, content):
 def update_mood(chat_id, text):
     text = text.lower()
 
-    if chat_id not in mood:
-        mood[chat_id] = "neutral"
+    mood.setdefault(chat_id, "neutral")
 
-    negative = ["بد", "غم", "تنها", "افسرده", "استرس", "اضطراب", "نمی‌تونم"]
+    negative = ["بد", "غم", "تنها", "استرس", "اضطراب", "افسرده", "نمی‌تونم"]
     positive = ["خوبم", "عالی", "مرسی", "اوکی", "خوشحال"]
 
     if any(w in text for w in negative):
@@ -52,91 +47,103 @@ def update_mood(chat_id, text):
 
 
 # ======================
-# SYSTEM PROMPT
+# PROMPT
 # ======================
 
 BASE_PROMPT = """
-تو سایکو هستی.
+اسم تو سایکو هست.
 
-دوست صمیمی و تراپیست‌طور درباره AVPD و دلبستگی اجتنابی.
+یک دوست صمیمی و تراپیست‌طور برای چت فارسی.
 
 قوانین:
 - کوتاه و طبیعی حرف بزن
-- خودت رو ربات معرفی نکن
-- تحلیل سنگین نده مگر لازم باشه
-- خیلی انسانی و دوستانه رفتار کن
+- ربات بودن رو توضیح نده
+- خیلی رسمی نباش
+- supportive باش
+- نقش رو لو نده
 
-شخصیت:
-- بامزه
-- کمی دارک
-- supportive
-
-تو روانشناسی بلدی ولی:
-- تشخیص پزشکی نمی‌دی
+تو درباره AVPD و اضطراب اجتماعی هم کمک می‌کنی
 """
-
 
 def build_prompt(chat_id):
     m = mood.get(chat_id, "neutral")
 
     style = {
-        "happy": "گرم‌تر و شوخ‌تر باش",
-        "neutral": "متعادل و طبیعی باش",
-        "low": "آروم و همدل باش"
+        "happy": "گرم و شوخ باش",
+        "neutral": "متعادل",
+        "low": "آروم و همدل"
     }
 
-    return BASE_PROMPT + "\nحالت کاربر: " + style[m]
+    history = memory.get(chat_id, [])
+
+    convo = ""
+    for item in history:
+        role = "کاربر" if item["role"] == "user" else "سایکو"
+        convo += f"{role}: {item['content']}\n"
+
+    return f"""
+{BASE_PROMPT}
+
+حالت: {style[m]}
+
+مکالمه:
+{convo}
+سایکو:
+"""
 
 
 # ======================
-# AI CALL (HF)
+# HF CALL (FIXED)
 # ======================
 
-def get_ai_response(chat_id, text):
-
+def get_ai_response(chat_id, user_text):
     try:
-        update_mood(chat_id, text)
-        add_to_memory(chat_id, "user", text)
+        print("➡️ HF request...")
+
+        update_mood(chat_id, user_text)
+        add_to_memory(chat_id, "user", user_text)
 
         prompt = build_prompt(chat_id)
 
-        # تبدیل chat memory به متن ساده (مهم!)
-        conversation = ""
-        for m in memory.get(chat_id, []):
-            role = "User" if m["role"] == "user" else "Bot"
-            conversation += f"{role}: {m['content']}\n"
+        url = "https://api-inference.huggingface.co/models/google/gemma-4-26B-A4B-it"
 
-        full_prompt = f"{prompt}\n\n{conversation}\nUser: {text}\nAssistant:"
+        headers = {
+            "Authorization": f"Bearer {HF_TOKEN}",
+            "Content-Type": "application/json"
+        }
 
-        r = requests.post(
-            f"https://api-inference.huggingface.co/models/{HF_MODEL}",
-            headers={
-                "Authorization": f"Bearer {HF_API_KEY}"
-            },
-            json={
-                "inputs": full_prompt,
-                "parameters": {
-                    "max_new_tokens": 180,
-                    "temperature": 0.8,
-                    "return_full_text": False
-                }
-            },
-            timeout=60
-        )
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "temperature": 0.9,
+                "max_new_tokens": 180,
+                "top_p": 0.9,
+                "return_full_text": False
+            }
+        }
+
+        r = requests.post(url, headers=headers, json=payload, timeout=60)
+
+        print("STATUS:", r.status_code)
 
         if r.status_code != 200:
             print("HF ERROR:", r.text)
-            return "یه مشکلی پیش اومد 😵"
+            return "یه مشکلی سمت مدل پیش اومد 😵"
 
         data = r.json()
 
-        # HF response format
+        # HF output format
         if isinstance(data, list) and "generated_text" in data[0]:
             reply = data[0]["generated_text"]
+        elif isinstance(data, dict) and "generated_text" in data:
+            reply = data["generated_text"]
         else:
             reply = str(data)
 
         reply = reply.strip()
+
+        if not reply:
+            return "یه لحظه مغزم هنگ کرد 😵"
 
         add_to_memory(chat_id, "assistant", reply)
         return reply
@@ -152,7 +159,6 @@ def get_ai_response(chat_id, text):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-
     try:
         update = request.get_json()
         message = update.get("message", {})
@@ -167,7 +173,6 @@ def webhook():
         text_lower = text.lower()
 
         should_reply = chat_type == "private"
-
         if not should_reply:
             triggers = ["psycho", "سایکو", "@psychoteraphist_bot"]
             should_reply = any(t in text_lower for t in triggers)
@@ -175,7 +180,11 @@ def webhook():
         if not should_reply:
             return "OK", 200
 
+        print("USER:", text)
+
         reply = get_ai_response(chat_id, text)
+
+        print("BOT:", reply)
 
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
@@ -194,7 +203,7 @@ def webhook():
 
 
 # ======================
-# WEB ROUTES
+# WEB
 # ======================
 
 @app.route("/set_webhook")
