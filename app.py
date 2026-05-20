@@ -13,10 +13,11 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 APP_URL = os.environ.get("APP_URL")
 
 # ======================
-# MEMORY
+# MEMORY + MOOD
 # ======================
 
 memory = {}
+mood = {}  # 👈 mood per user
 MAX_MEMORY = 12
 
 
@@ -27,19 +28,38 @@ def add_to_memory(chat_id, role, content):
     if chat_id not in memory:
         memory[chat_id] = []
 
-    memory[chat_id].append({
-        "role": role,
-        "content": content
-    })
-
+    memory[chat_id].append({"role": role, "content": content})
     memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
+
+
+def update_mood(chat_id, user_text):
+    """
+    خیلی ساده mood detection
+    """
+
+    text = user_text.lower()
+
+    if chat_id not in mood:
+        mood[chat_id] = "neutral"
+
+    negative_words = ["بد", "غم", "تنها", "افسرده", "حالم بده", "استرس", "اضطراب", "نمی‌تونم"]
+    positive_words = ["خوبم", "عالی", "مرسی", "اوکی", "خوشحال"]
+
+    if any(w in text for w in negative_words):
+        mood[chat_id] = "low"
+
+    elif any(w in text for w in positive_words):
+        mood[chat_id] = "happy"
+
+    else:
+        mood[chat_id] = "neutral"
 
 
 # ======================
 # SYSTEM PROMPT
 # ======================
 
-SYSTEM_PROMPT = """
+BASE_PROMPT = """
 اسم تو سایکو یا psycho هست.
 
 یک دوست صمیمی و تراپیست‌طور برای گروه فارسی درباره AVPD و دلبستگی اجتنابی.
@@ -52,6 +72,10 @@ SYSTEM_PROMPT = """
 - رسمی و کتابی نباش
 - از اصطلاحات مصنوعی استفاده نکن
 - مثل دوست واقعی رفتار کن
+- کوتاه و طبیعی حرف بزن
+- مثل چت تلگرام
+- ربات بودن رو توضیح نده
+- تحلیل پیچیده نده مگر لازم باشه
 
 شخصیت:
 - بامزه
@@ -78,20 +102,27 @@ SYSTEM_PROMPT = """
 """
 
 
+def build_prompt(chat_id):
+    m = mood.get(chat_id, "neutral")
+
+    mood_style = {
+        "happy": "کاربر حالش بهتره، تو هم گرم‌تر و شوخ‌تر باش",
+        "neutral": "متعادل و طبیعی رفتار کن",
+        "low": "آروم، همدل، خیلی نرم و supportive باش"
+    }
+
+    return BASE_PROMPT + "\n\nحالت فعلی کاربر: " + mood_style[m]
+
+
 # ======================
-# MODELS (FULL FALLBACK CHAIN)
+# MODEL
 # ======================
 
-MODELS = [
-    "deepseek/deepseek-v4-flash:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "meta-llama/llama-3.2-3b-instruct:free"
-]
+MODEL = "openrouter/free"
 
 
 # ======================
-# AI RESPONSE
+# AI
 # ======================
 
 def get_ai_response(chat_id, user_text):
@@ -99,58 +130,44 @@ def get_ai_response(chat_id, user_text):
     try:
         print("➡️ AI request...")
 
+        update_mood(chat_id, user_text)
         add_to_memory(chat_id, "user", user_text)
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": build_prompt(chat_id)}]
         messages += memory.get(chat_id, [])
 
-        last_error = None
+        r = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": MODEL,
+                "messages": messages,
+                "temperature": 0.85,
+                "top_p": 0.9,
+                "max_tokens": 180
+            },
+            timeout=60
+        )
 
-        for model in MODELS:
+        print("STATUS:", r.status_code)
 
-            try:
-                r = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "temperature": 0.8,
-                        "top_p": 0.9,
-                        "max_tokens": 150
-                    },
-                    timeout=60
-                )
+        if r.status_code != 200:
+            print("ERROR:", r.text)
+            return "یه مشکلی پیش اومده 😵"
 
-                print("MODEL:", model, "STATUS:", r.status_code)
+        data = r.json()
 
-                # success
-                if r.status_code == 200:
-                    data = r.json()
+        msg = data.get("choices", [{}])[0].get("message", {})
+        reply = (msg.get("content") or "").strip()
 
-                    msg = data.get("choices", [{}])[0].get("message", {})
+        if not reply:
+            return "یه لحظه مغزم هنگ کرد 😵"
 
-                    reply = (msg.get("content") or "").strip()
-
-                    if not reply:
-                        continue
-
-                    add_to_memory(chat_id, "assistant", reply)
-                    return reply
-
-                else:
-                    last_error = r.text
-                    continue
-
-            except Exception as e:
-                last_error = str(e)
-                continue
-
-        print("ALL MODELS FAILED:", last_error)
-        return "یه مشکلی پیش اومده 😵"
+        add_to_memory(chat_id, "assistant", reply)
+        return reply
 
     except Exception as e:
         print("AI ERROR:", e)
@@ -166,8 +183,6 @@ def webhook():
 
     try:
         update = request.get_json()
-        print("RAW UPDATE:", update)
-
         message = update.get("message", {})
 
         text = message.get("text", "")
@@ -211,28 +226,20 @@ def webhook():
 
 
 # ======================
-# SET WEBHOOK
+# WEB
 # ======================
 
 @app.route("/set_webhook")
 def set_webhook():
-    try:
-        webhook_url = f"{APP_URL}/webhook"
+    webhook_url = f"{APP_URL}/webhook"
 
-        r = requests.get(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-            params={"url": webhook_url}
-        )
+    r = requests.get(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
+        params={"url": webhook_url}
+    )
 
-        return r.text
+    return r.text
 
-    except Exception as e:
-        return str(e)
-
-
-# ======================
-# KEEP ALIVE
-# ======================
 
 @app.route("/ping")
 def ping():
