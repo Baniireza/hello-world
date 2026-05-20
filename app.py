@@ -246,17 +246,19 @@ if reply_msg:
         if bot_username == "psychoteraphist_bot":
             replied_to_bot = True
 
-    # ======================
-    # TRIGGERS
-    # ======================
-    should_reply = (
-        replied_to_bot
-        or "psycho" in text.lower()
-        or "سایکو" in text.lower()
-    )
 
-    if not should_reply:
-        return "OK", 200
+# ======================
+# TRIGGERS
+# ======================
+
+should_reply = (
+    replied_to_bot
+    or "psycho" in text.lower()
+    or "سایکو" in text.lower()
+)
+
+if not should_reply:
+    return "OK", 200
 
     reply = get_ai_response(chat_id, text)
 
