@@ -21,7 +21,6 @@ MAX_MEMORY = 12
 
 
 def add_to_memory(chat_id, role, content):
-
     if not content:
         return
 
@@ -33,15 +32,13 @@ def add_to_memory(chat_id, role, content):
         "content": content
     })
 
-    # keep last messages
     memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
 
 
 # ======================
-# MODEL
+# SYSTEM PROMPT
 # ======================
 
-MODEL_NAME = "google/gemma-4-31b-it:free"
 SYSTEM_PROMPT = """
 اسم تو سایکو یا psycho هست.
 
@@ -82,70 +79,78 @@ SYSTEM_PROMPT = """
 
 
 # ======================
+# MODELS (FULL FALLBACK CHAIN)
+# ======================
+
+MODELS = [
+    "deepseek/deepseek-v4-flash:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "meta-llama/llama-3.2-3b-instruct:free"
+]
+
+
+# ======================
 # AI RESPONSE
 # ======================
 
 def get_ai_response(chat_id, user_text):
 
     try:
-        print("➡️ OpenRouter request...")
+        print("➡️ AI request...")
 
         add_to_memory(chat_id, "user", user_text)
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT}
-        ]
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages += memory.get(chat_id, [])
 
-        if chat_id in memory:
-            messages += memory[chat_id]
+        last_error = None
 
-        r = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": MODEL_NAME,
-                "messages": messages,
-                "temperature": 0.8,
-                "top_p": 0.9,
-                "max_tokens": 150
-            },
-            timeout=60
-        )
+        for model in MODELS:
 
-        print("STATUS:", r.status_code)
-
-        if r.status_code != 200:
-            print("ERROR:", r.text)
-            return "یه مشکلی پیش اومده 😵"
-
-        data = r.json()
-        print("FULL RESPONSE:", data)
-
-        message_data = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-        )
-
-        reply = (
-            message_data.get("content")
-            or message_data.get("reasoning")
-            or ""
-        )
-
-        # fallback
-        if not reply:
             try:
-                reply = data["choices"][0].get("text", "")
-            except:
-                reply = "مغزم هنگ کرد یه لحظه 😭"
+                r = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "temperature": 0.8,
+                        "top_p": 0.9,
+                        "max_tokens": 150
+                    },
+                    timeout=60
+                )
 
-        reply = str(reply).strip()
+                print("MODEL:", model, "STATUS:", r.status_code)
 
-        add_to_memory(chat_id, "assistant", reply)
-        return reply
+                # success
+                if r.status_code == 200:
+                    data = r.json()
+
+                    msg = data.get("choices", [{}])[0].get("message", {})
+
+                    reply = (msg.get("content") or "").strip()
+
+                    if not reply:
+                        continue
+
+                    add_to_memory(chat_id, "assistant", reply)
+                    return reply
+
+                else:
+                    last_error = r.text
+                    continue
+
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        print("ALL MODELS FAILED:", last_error)
+        return "یه مشکلی پیش اومده 😵"
 
     except Exception as e:
         print("AI ERROR:", e)
@@ -160,9 +165,7 @@ def get_ai_response(chat_id, user_text):
 def webhook():
 
     try:
-
         update = request.get_json()
-
         print("RAW UPDATE:", update)
 
         message = update.get("message", {})
@@ -176,32 +179,11 @@ def webhook():
 
         text_lower = text.lower()
 
-        should_reply = False
+        should_reply = chat_type == "private"
 
-        # ======================
-        # PRIVATE CHAT
-        # ======================
-
-        if chat_type == "private":
-            should_reply = True
-
-        # ======================
-        # GROUP CHAT
-        # ======================
-
-        else:
-
-            triggers = [
-                "psycho",
-                "سایکو",
-                "@psychoteraphist_bot"
-            ]
-
-            for trigger in triggers:
-
-                if trigger in text_lower:
-                    should_reply = True
-                    break
+        if not should_reply:
+            triggers = ["psycho", "سایکو", "@psychoteraphist_bot"]
+            should_reply = any(t in text_lower for t in triggers)
 
         if not should_reply:
             return "OK", 200
@@ -212,7 +194,6 @@ def webhook():
 
         print("BOT:", reply)
 
-        # send message
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={
@@ -225,9 +206,7 @@ def webhook():
         return "OK", 200
 
     except Exception as e:
-
         print("WEBHOOK ERROR:", e)
-
         return "ERROR", 500
 
 
@@ -237,22 +216,17 @@ def webhook():
 
 @app.route("/set_webhook")
 def set_webhook():
-
     try:
-
         webhook_url = f"{APP_URL}/webhook"
 
         r = requests.get(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-            params={
-                "url": webhook_url
-            }
+            params={"url": webhook_url}
         )
 
         return r.text
 
     except Exception as e:
-
         return str(e)
 
 
@@ -265,10 +239,6 @@ def ping():
     return "alive"
 
 
-# ======================
-# HOME
-# ======================
-
 @app.route("/")
 def home():
     return "Psycho Bot Running ✅"
@@ -279,10 +249,5 @@ def home():
 # ======================
 
 if __name__ == "__main__":
-
     port = int(os.environ.get("PORT", 10000))
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    app.run(host="0.0.0.0", port=port)
