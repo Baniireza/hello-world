@@ -227,17 +227,23 @@ def webhook():
 
     last_message_time[chat_id] = now
 
-    # ======================
-    # REPLY DETECTION
-    # ======================
-    replied_to_bot = False
+# ======================
+# REPLY DETECTION
+# ======================
 
-    reply_msg = message.get("reply_to_message")
-    if reply_msg:
-        from_user = reply_msg.get("from", {})
-        username = from_user.get("username", "").lower()
+replied_to_bot = False
 
-        if username == "PsychoTeraphist_bot":
+reply_msg = message.get("reply_to_message")
+
+if reply_msg:
+    from_user = reply_msg.get("from", {})
+
+    # bot replied message
+    if from_user.get("is_bot"):
+
+        bot_username = from_user.get("username", "").lower()
+
+        if bot_username == "psychoteraphist_bot":
             replied_to_bot = True
 
     # ======================
