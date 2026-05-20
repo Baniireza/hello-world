@@ -17,7 +17,7 @@ APP_URL = os.environ.get("APP_URL")
 # ======================
 
 memory = {}
-mood = {}  # 👈 mood per user
+mood = {}
 MAX_MEMORY = 12
 
 
@@ -32,25 +32,19 @@ def add_to_memory(chat_id, role, content):
     memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
 
 
-def update_mood(chat_id, user_text):
-    """
-    خیلی ساده mood detection
-    """
-
-    text = user_text.lower()
+def update_mood(chat_id, text):
+    text = text.lower()
 
     if chat_id not in mood:
         mood[chat_id] = "neutral"
 
-    negative_words = ["بد", "غم", "تنها", "افسرده", "حالم بده", "استرس", "اضطراب", "نمی‌تونم"]
-    positive_words = ["خوبم", "عالی", "مرسی", "اوکی", "خوشحال"]
+    negative = ["بد", "غم", "تنها", "استرس", "اضطراب", "افسرده", "نمی‌تونم"]
+    positive = ["خوبم", "عالی", "مرسی", "اوکی", "خوشحال"]
 
-    if any(w in text for w in negative_words):
+    if any(w in text for w in negative):
         mood[chat_id] = "low"
-
-    elif any(w in text for w in positive_words):
+    elif any(w in text for w in positive):
         mood[chat_id] = "happy"
-
     else:
         mood[chat_id] = "neutral"
 
@@ -105,25 +99,40 @@ BASE_PROMPT = """
 def build_prompt(chat_id):
     m = mood.get(chat_id, "neutral")
 
-    mood_style = {
-        "happy": "کاربر حالش بهتره، تو هم گرم‌تر و شوخ‌تر باش",
-        "neutral": "متعادل و طبیعی رفتار کن",
-        "low": "آروم، همدل، خیلی نرم و supportive باش"
+    style = {
+        "happy": "گرم‌تر و شوخ‌تر باش",
+        "neutral": "متعادل و طبیعی",
+        "low": "آروم، همدل و supportive"
     }
 
-    return BASE_PROMPT + "\n\nحالت فعلی کاربر: " + mood_style[m]
+    return BASE_PROMPT + "\n\nحالت کاربر: " + style[m]
 
 
 # ======================
 # MODEL
 # ======================
 
-MODEL = "openrouter/free"
+MODEL = "deepseek/deepseek-v4-flash:free"
 
 
 # ======================
-# AI
+# AI FUNCTION
 # ======================
+
+def extract_reply(data):
+    try:
+        choice = data.get("choices", [{}])[0]
+        msg = choice.get("message", {})
+
+        return (
+            msg.get("content")
+            or msg.get("text")
+            or choice.get("text")
+            or ""
+        ).strip()
+    except:
+        return ""
+
 
 def get_ai_response(chat_id, user_text):
 
@@ -160,8 +169,7 @@ def get_ai_response(chat_id, user_text):
 
         data = r.json()
 
-        msg = data.get("choices", [{}])[0].get("message", {})
-        reply = (msg.get("content") or "").strip()
+        reply = extract_reply(data)
 
         if not reply:
             return "یه لحظه مغزم هنگ کرد 😵"
@@ -231,11 +239,11 @@ def webhook():
 
 @app.route("/set_webhook")
 def set_webhook():
-    webhook_url = f"{APP_URL}/webhook"
+    url = f"{APP_URL}/webhook"
 
     r = requests.get(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-        params={"url": webhook_url}
+        params={"url": url}
     )
 
     return r.text
