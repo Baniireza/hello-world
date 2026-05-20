@@ -9,7 +9,7 @@ app = Flask(__name__)
 # ======================
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-HF_TOKEN = os.environ.get("HF_TOKEN")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 APP_URL = os.environ.get("APP_URL")
 
 # ======================
@@ -25,7 +25,9 @@ def add_to_memory(chat_id, role, content):
     if not content:
         return
 
-    memory.setdefault(chat_id, [])
+    if chat_id not in memory:
+        memory[chat_id] = []
+
     memory[chat_id].append({"role": role, "content": content})
     memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
 
@@ -33,7 +35,8 @@ def add_to_memory(chat_id, role, content):
 def update_mood(chat_id, text):
     text = text.lower()
 
-    mood.setdefault(chat_id, "neutral")
+    if chat_id not in mood:
+        mood[chat_id] = "neutral"
 
     negative = ["بد", "غم", "تنها", "استرس", "اضطراب", "افسرده", "نمی‌تونم"]
     positive = ["خوبم", "عالی", "مرسی", "اوکی", "خوشحال"]
@@ -47,100 +50,101 @@ def update_mood(chat_id, text):
 
 
 # ======================
-# PROMPT
+# SYSTEM PROMPT
 # ======================
 
 BASE_PROMPT = """
-اسم تو سایکو هست.
+اسم تو سایکو یا psycho هست.
 
-یک دوست صمیمی و تراپیست‌طور برای چت فارسی.
+یک دوست صمیمی و تراپیست‌طور برای گروه فارسی درباره AVPD و دلبستگی اجتنابی.
 
-قوانین:
-- کوتاه و طبیعی حرف بزن
-- ربات بودن رو توضیح نده
+قوانین مهم:
+- طبیعی و محاوره‌ای فارسی حرف بزن
+- کوتاه و تلگرامی
+- نقش ربات رو توضیح نده
 - خیلی رسمی نباش
-- supportive باش
-- نقش رو لو نده
+- حمایتگر و بامزه باش
 
-تو درباره AVPD و اضطراب اجتماعی هم کمک می‌کنی
+تخصص:
+- AVPD
+- اضطراب اجتماعی
+- attachment styles
+- روابط
 """
+
 
 def build_prompt(chat_id):
     m = mood.get(chat_id, "neutral")
 
     style = {
-        "happy": "گرم و شوخ باش",
-        "neutral": "متعادل",
+        "happy": "گرم‌تر و شوخ‌تر باش",
+        "neutral": "متعادل و طبیعی",
         "low": "آروم و همدل"
     }
 
-    history = memory.get(chat_id, [])
-
-    convo = ""
-    for item in history:
-        role = "کاربر" if item["role"] == "user" else "سایکو"
-        convo += f"{role}: {item['content']}\n"
-
-    return f"""
-{BASE_PROMPT}
-
-حالت: {style[m]}
-
-مکالمه:
-{convo}
-سایکو:
-"""
+    return BASE_PROMPT + "\n\nحالت کاربر: " + style[m]
 
 
 # ======================
-# HF CALL (FIXED)
+# GEMINI CALL
 # ======================
 
-def get_ai_response(chat_id, user_text):
+def get_gemini_response(chat_id, user_text):
     try:
-        print("➡️ HF request...")
+        print("➡️ AI request (Gemini)...")
 
         update_mood(chat_id, user_text)
         add_to_memory(chat_id, "user", user_text)
 
-        prompt = build_prompt(chat_id)
+        system_prompt = build_prompt(chat_id)
 
-        url = "https://api-inference.huggingface.co/models/google/gemma-4-26B-A4B-it"
+        # تبدیل memory به متن ساده (Gemini chat format ساده‌تره)
+        history_text = ""
+        for m in memory.get(chat_id, []):
+            role = "کاربر" if m["role"] == "user" else "دستیار"
+            history_text += f"{role}: {m['content']}\n"
 
-        headers = {
-            "Authorization": f"Bearer {HF_TOKEN}",
-            "Content-Type": "application/json"
-        }
+        full_prompt = f"""
+{system_prompt}
+
+مکالمه:
+{history_text}
+
+کاربر: {user_text}
+دستیار:
+"""
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
         payload = {
-            "inputs": prompt,
-            "parameters": {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": full_prompt}
+                    ]
+                }
+            ],
+            "generationConfig": {
                 "temperature": 0.9,
-                "max_new_tokens": 180,
-                "top_p": 0.9,
-                "return_full_text": False
+                "maxOutputTokens": 180,
+                "topP": 0.9
             }
         }
 
-        r = requests.post(url, headers=headers, json=payload, timeout=60)
+        r = requests.post(url, json=payload, timeout=60)
 
         print("STATUS:", r.status_code)
 
         if r.status_code != 200:
-            print("HF ERROR:", r.text)
-            return "یه مشکلی سمت مدل پیش اومد 😵"
+            print("ERROR:", r.text)
+            return "یه مشکلی پیش اومده 😵"
 
         data = r.json()
 
-        # HF output format
-        if isinstance(data, list) and "generated_text" in data[0]:
-            reply = data[0]["generated_text"]
-        elif isinstance(data, dict) and "generated_text" in data:
-            reply = data["generated_text"]
-        else:
-            reply = str(data)
-
-        reply = reply.strip()
+        reply = (
+            data["candidates"][0]["content"]["parts"][0]["text"]
+            if "candidates" in data else ""
+        ).strip()
 
         if not reply:
             return "یه لحظه مغزم هنگ کرد 😵"
@@ -149,7 +153,7 @@ def get_ai_response(chat_id, user_text):
         return reply
 
     except Exception as e:
-        print("ERROR:", e)
+        print("AI ERROR:", e)
         return "مغزم قاط زد 😭"
 
 
@@ -173,6 +177,7 @@ def webhook():
         text_lower = text.lower()
 
         should_reply = chat_type == "private"
+
         if not should_reply:
             triggers = ["psycho", "سایکو", "@psychoteraphist_bot"]
             should_reply = any(t in text_lower for t in triggers)
@@ -182,7 +187,7 @@ def webhook():
 
         print("USER:", text)
 
-        reply = get_ai_response(chat_id, text)
+        reply = get_gemini_response(chat_id, text)
 
         print("BOT:", reply)
 
@@ -227,10 +232,6 @@ def ping():
 def home():
     return "Psycho Bot Running ✅"
 
-
-# ======================
-# RUN
-# ======================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
