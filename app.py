@@ -89,45 +89,35 @@ def build_prompt(chat_id):
 # GEMINI CALL
 # ======================
 
-def get_gemini_response(chat_id, user_text):
+def get_ai_response(chat_id, user_text):
     try:
         print("➡️ AI request (Gemini)...")
 
         update_mood(chat_id, user_text)
         add_to_memory(chat_id, "user", user_text)
 
-        system_prompt = build_prompt(chat_id)
+        contents = []
 
-        # تبدیل memory به متن ساده (Gemini chat format ساده‌تره)
-        history_text = ""
+        # system prompt
+        contents.append({
+            "role": "user",
+            "parts": [{"text": build_prompt(chat_id)}]
+        })
+
+        # memory
         for m in memory.get(chat_id, []):
-            role = "کاربر" if m["role"] == "user" else "دستیار"
-            history_text += f"{role}: {m['content']}\n"
+            contents.append({
+                "role": m["role"],
+                "parts": [{"text": m["content"]}]
+            })
 
-        full_prompt = f"""
-{system_prompt}
-
-مکالمه:
-{history_text}
-
-کاربر: {user_text}
-دستیار:
-"""
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={os.environ.get('GEMINI_API_KEY')}"
 
         payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": full_prompt}
-                    ]
-                }
-            ],
+            "contents": contents,
             "generationConfig": {
-                "temperature": 0.9,
-                "maxOutputTokens": 180,
-                "topP": 0.9
+                "temperature": 0.85,
+                "maxOutputTokens": 180
             }
         }
 
