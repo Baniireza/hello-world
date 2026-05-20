@@ -50,44 +50,28 @@ def update_mood(chat_id, text):
 
 
 # ======================
-# SYSTEM PROMPT
+# PROMPT
 # ======================
 
 BASE_PROMPT = """
-اسم تو سایکو یا psycho هست.
+اسم تو سایکو هست.
 
-یک دوست صمیمی و تراپیست‌طور برای گروه فارسی درباره AVPD و دلبستگی اجتنابی.
+یک دوست صمیمی و تراپیست‌طور برای گروه فارسی درباره AVPD.
 
-قوانین مهم:
-- طبیعی و محاوره‌ای فارسی حرف بزن
-- کوتاه و تلگرامی
-- نقش ربات رو توضیح نده
-- خیلی رسمی نباش
-- حمایتگر و بامزه باش
-
-تخصص:
-- AVPD
-- اضطراب اجتماعی
-- attachment styles
-- روابط
+کوتاه، محاوره‌ای، طبیعی حرف بزن.
 """
 
 
 def build_prompt(chat_id):
-    m = mood.get(chat_id, "neutral")
-
-    style = {
-        "happy": "گرم‌تر و شوخ‌تر باش",
-        "neutral": "متعادل و طبیعی",
-        "low": "آروم و همدل"
-    }
-
-    return BASE_PROMPT + "\n\nحالت کاربر: " + style[m]
+    return BASE_PROMPT + "\nحالت کاربر: " + mood.get(chat_id, "neutral")
 
 
 # ======================
-# GEMINI CALL (FIXED)
+# GEMINI MODEL (FIXED)
 # ======================
+
+MODEL = "gemini-2.5-flash"   # 👈 مهم: اینو آپدیت کردم
+
 
 def get_ai_response(chat_id, user_text):
     try:
@@ -98,7 +82,7 @@ def get_ai_response(chat_id, user_text):
 
         contents = []
 
-        # system prompt (بهتره role=user باشه)
+        # prompt as first message
         contents.append({
             "role": "user",
             "parts": [{"text": build_prompt(chat_id)}]
@@ -111,8 +95,7 @@ def get_ai_response(chat_id, user_text):
                 "parts": [{"text": m["content"]}]
             })
 
-        # 🔥 IMPORTANT FIX: v1 instead of v1beta
-        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={GEMINI_API_KEY}"
 
         payload = {
             "contents": contents,
@@ -132,17 +115,13 @@ def get_ai_response(chat_id, user_text):
 
         data = r.json()
 
-        reply = ""
-        try:
-            reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except:
-            reply = ""
-
-        if not reply:
-            return "یه لحظه مغزم هنگ کرد 😵"
+        reply = (
+            data["candidates"][0]["content"]["parts"][0]["text"]
+            if "candidates" in data else ""
+        ).strip()
 
         add_to_memory(chat_id, "assistant", reply)
-        return reply
+        return reply or "یه لحظه مغزم هنگ کرد 😵"
 
     except Exception as e:
         print("AI ERROR:", e)
@@ -166,13 +145,11 @@ def webhook():
         if not text or not chat_id:
             return "OK", 200
 
-        text_lower = text.lower()
-
         should_reply = chat_type == "private"
 
         if not should_reply:
-            triggers = ["psycho", "سایکو", "@psychoteraphist_bot"]
-            should_reply = any(t in text_lower for t in triggers)
+            triggers = ["psycho", "سایکو"]
+            should_reply = any(t in text.lower() for t in triggers)
 
         if not should_reply:
             return "OK", 200
@@ -199,35 +176,20 @@ def webhook():
         return "ERROR", 500
 
 
-# ======================
-# SET WEBHOOK
-# ======================
-
-@app.route("/set_webhook")
-def set_webhook():
-    url = f"{APP_URL}/webhook"
-
-    r = requests.get(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-        params={"url": url}
-    )
-
-    return r.text
-
-
-@app.route("/ping")
-def ping():
-    return "alive"
-
-
 @app.route("/")
 def home():
     return "Psycho Bot Running ✅"
 
 
-# ======================
-# RUN
-# ======================
+@app.route("/set_webhook")
+def set_webhook():
+    url = f"{APP_URL}/webhook"
+    r = requests.get(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
+        params={"url": url}
+    )
+    return r.text
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
