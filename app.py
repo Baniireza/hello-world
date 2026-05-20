@@ -25,7 +25,6 @@ MAX_MEMORY = 12
 def add_to_memory(chat_id, role, content):
     if not content:
         return
-
     memory.setdefault(chat_id, [])
     memory[chat_id].append({"role": role, "content": content})
     memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
@@ -48,7 +47,6 @@ def update_mood(chat_id, text):
 # ======================
 # PROMPT
 # ======================
-
 
 BASE_PROMPT = """
 اسم تو سایکو یا psycho هست.
@@ -92,21 +90,24 @@ BASE_PROMPT = """
 - با ادمین‌ها محترمانه رفتار کن
 """
 
-
 def build_prompt(chat_id):
     return BASE_PROMPT + "\nحالت کاربر: " + mood.get(chat_id, "neutral")
 
 
 # ======================
-# MODELS (fallback)
+# MODELS (ORDER FIXED)
 # ======================
 
 MODELS = [
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-pro"
+    "gemini-2.5-pro",
+    "gemini-2.5-flash-lite"
 ]
 
+
+# ======================
+# GEMINI CALL
+# ======================
 
 def call_gemini(model, contents):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
@@ -115,13 +116,18 @@ def call_gemini(model, contents):
         "contents": contents,
         "generationConfig": {
             "temperature": 0.9,
-            "maxOutputTokens": 512,   # 🔥 FIX اصلی: جلوگیری از نصف شدن پیام
-            "topP": 0.95,
-            "stopSequences": []
+            "maxOutputTokens": 768,   # 🔥 مهم: جلوگیری از نصف شدن پیام
+            "topP": 0.95
         }
     }
 
     return requests.post(url, json=payload, timeout=60)
+
+
+def is_cut_off(text):
+    if not text:
+        return True
+    return text.strip()[-1] not in ".!?؟"
 
 
 # ======================
@@ -130,8 +136,6 @@ def call_gemini(model, contents):
 
 def get_ai_response(chat_id, user_text):
     try:
-        print("➡️ AI request (Gemini)...")
-
         update_mood(chat_id, user_text)
         add_to_memory(chat_id, "user", user_text)
 
@@ -154,33 +158,31 @@ def get_ai_response(chat_id, user_text):
 
             print(f"MODEL {model} STATUS:", r.status_code)
 
-            if r.status_code == 200:
-                data = r.json()
+            if r.status_code != 200:
+                last_error = r.text
+                continue
 
-                if "candidates" not in data:
-                    continue
+            data = r.json()
 
-                reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            if "candidates" not in data:
+                continue
 
-                if len(reply) < 5:
-                    continue
+            reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-                add_to_memory(chat_id, "model", reply)
-                return reply
-
-            last_error = r.text
-
-            # retry simple for 503
-            if r.status_code == 503:
-                time.sleep(1.5)
+            # 🔥 FIX مهم: اگر پیام قطع شده بود دوباره درخواست بزن
+            if is_cut_off(reply):
+                print("⚠️ cut-off detected, retrying...")
                 r2 = call_gemini(model, contents)
                 if r2.status_code == 200:
-                    data = r2.json()
-                    reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    add_to_memory(chat_id, "model", reply)
-                    return reply
+                    data2 = r2.json()
+                    reply = data2["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-        print("FINAL ERROR:", last_error)
+            if len(reply) < 5:
+                continue
+
+            add_to_memory(chat_id, "model", reply)
+            return reply
+
         return "یه مشکلی از سمت هوش مصنوعی پیش اومده 😵"
 
     except Exception as e:
@@ -194,51 +196,36 @@ def get_ai_response(chat_id, user_text):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    try:
-        update = request.get_json()
-        message = update.get("message", {})
+    update = request.get_json()
+    message = update.get("message", {})
 
-        text = message.get("text", "")
-        chat_id = message.get("chat", {}).get("id")
-        chat_type = message.get("chat", {}).get("type", "")
+    text = message.get("text", "")
+    chat_id = message.get("chat", {}).get("id")
+    chat_type = message.get("chat", {}).get("type", "")
 
-        if not text or not chat_id:
-            return "OK", 200
-
-        should_reply = chat_type == "private"
-
-        if not should_reply:
-            triggers = ["psycho", "سایکو"]
-            should_reply = any(t in text.lower() for t in triggers)
-
-        if not should_reply:
-            return "OK", 200
-
-        print("USER:", text)
-
-        reply = get_ai_response(chat_id, text)
-
-        print("BOT:", reply)
-
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": reply,
-                "reply_to_message_id": message.get("message_id")
-            }
-        )
-
+    if not text or not chat_id:
         return "OK", 200
 
-    except Exception as e:
-        print("WEBHOOK ERROR:", e)
-        return "ERROR", 500
+    should_reply = chat_type == "private" or any(
+        t in text.lower() for t in ["psycho", "سایکو"]
+    )
 
+    if not should_reply:
+        return "OK", 200
 
-# ======================
-# ROUTES
-# ======================
+    reply = get_ai_response(chat_id, text)
+
+    requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": reply,
+            "reply_to_message_id": message.get("message_id")
+        }
+    )
+
+    return "OK", 200
+
 
 @app.route("/")
 def home():
@@ -248,18 +235,12 @@ def home():
 @app.route("/set_webhook")
 def set_webhook():
     url = f"{APP_URL}/webhook"
-
     r = requests.get(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
         params={"url": url}
     )
-
     return r.text
 
-
-# ======================
-# RUN
-# ======================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
