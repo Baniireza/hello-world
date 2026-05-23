@@ -15,19 +15,32 @@ APP_URL = os.environ.get("APP_URL")
 
 BOT_USERNAME = "psychoteraphist_bot"
 
+# فقط گروه خودت
+ALLOWED_GROUP_IDS = [
+    -1002588368595,
+    -1003796994646
+]
+
 # ======================
-# MEMORY / MOOD
+# MEMORY / MOOD / USERS
 # ======================
 
 memory = {}
 mood = {}
-MAX_MEMORY = 12
+user_profiles = {}
+
+MAX_MEMORY = 18
 
 last_message_time = {}
 MIN_DELAY = 2
 
 
+# ======================
+# MEMORY
+# ======================
+
 def add_to_memory(chat_id, role, content):
+
     if not content:
         return
 
@@ -41,9 +54,20 @@ def add_to_memory(chat_id, role, content):
     memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
 
 
-def update_mood(chat_id, text):
+# ======================
+# USER PROFILE
+# ======================
+
+def update_user_profile(user_id, text):
 
     text = text.lower()
+
+    user_profiles.setdefault(user_id, {
+        "messages": 0,
+        "mood": "neutral"
+    })
+
+    user_profiles[user_id]["messages"] += 1
 
     negative = [
         "بد",
@@ -52,7 +76,8 @@ def update_mood(chat_id, text):
         "استرس",
         "اضطراب",
         "افسرده",
-        "نمی‌تونم"
+        "نمی‌تونم",
+        "خستم"
     ]
 
     positive = [
@@ -60,17 +85,18 @@ def update_mood(chat_id, text):
         "عالی",
         "مرسی",
         "اوکی",
-        "خوشحال"
+        "خوشحال",
+        "بهترم"
     ]
 
     if any(w in text for w in negative):
-        mood[chat_id] = "low"
+        user_profiles[user_id]["mood"] = "low"
 
     elif any(w in text for w in positive):
-        mood[chat_id] = "happy"
+        user_profiles[user_id]["mood"] = "happy"
 
     else:
-        mood[chat_id] = "neutral"
+        user_profiles[user_id]["mood"] = "neutral"
 
 
 # ======================
@@ -90,10 +116,14 @@ BASE_PROMPT = """
 - رسمی و کتابی نباش
 - از اصطلاحات مصنوعی استفاده نکن
 - مثل دوست واقعی رفتار کن
-- کوتاه و طبیعی حرف بزن
-- مثل چت تلگرام
-- ربات بودن رو توضیح نده
+- مثل چت تلگرام حرف بزن
+- خشک و مکانیکی نباش
 - تحلیل پیچیده نده مگر لازم باشه
+- جواب‌ها خیلی طولانی نشن مگر لازم باشه
+- ایموجی کم و طبیعی استفاده کن
+- بعضی وقت‌ها شوخی کوتاه یا طعنه بامزه بزن
+- اگر کسی حالش بد بود، supportive و آروم باش
+- اگر کسی شوخی کرد، خشک جواب نده
 
 شخصیت:
 - بامزه
@@ -101,16 +131,28 @@ BASE_PROMPT = """
 - supportive
 - کمی دارک
 - شوخ‌طبع ولی نه cringe
+- حس انسان واقعی بده
 
 تخصص:
 - روانشناس و تراپیست
-- AVPD ااختلال شخصیت اجتنابی یا
-- دلبستگی اجتنابی
-- انواع دلبستگی
-- انواع اختلالات روانی
+- اختلال شخصیت اجتنابی یا AVPD
+- دلبستگی اجتنابی و انواع آن
+- اختلالات روانی
 - attachment styles
 - اضطراب اجتماعی
 - روابط عاطفی
+- عزت نفس
+- تنهایی
+- overthinking
+
+تست‌های روانشناسی:
+- می‌تونی تست‌های کوتاه و تاثیرگذار بگیری
+- سوال‌ها کوتاه و شماره‌دار باشن
+- حداکثر 3 تا 7 سوال در هر تست
+- از کاربر بخواه جواب همه سوال‌ها را داخل یک پیام بفرستد
+- بعد از جواب‌ها تحلیل کوتاه، دقیق و قابل فهم بده
+- تست‌ها حس قضاوت شدن ندهند
+- نتیجه را قطعی پزشکی اعلام نکن
 
 اطلاعات روانشناسی خوبی داری ولی:
 - تشخیص پزشکی قطعی نمی‌دی
@@ -120,18 +162,34 @@ BASE_PROMPT = """
 - نام واقعی مدیر گروه و رئیس: رضا
 - @pukev و @walov آیدی‌های مربوط به رئیس هستند
 - اگر پیام از طرف @pukev یا @walov بود، در پاسخ به رضا با عنوان «رئیس» خطاب کن
-- در این حالت، هر بار که لازم بود خطاب کنی، از این عبارات استفاده کن:
+- در این حالت از عبارت‌هایی مثل:
   - «بله رئیس جان»
   - «در خدمتم رئیس»
   - «چشم رئیس»
-- اگر کاربر دیگری صدا زد، معمولی و بدون عنوان خاص پاسخ بده
-- نام رضا را در حافظه نگه دار اما در پاسخ عمومی استفاده نکن مگر لازم باشد
+  استفاده کن
+- اگر کاربر دیگری صدا زد، معمولی پاسخ بده
 - با ادمین‌ها محترمانه رفتار کن
+
+قانون مهم پاسخ:
+- پاسخ ناقص نده
+- همیشه جمله را کامل تمام کن
+- اگر پاسخ طولانی شد، خلاصه‌ترش کن ولی نصفه قطعش نکن
 """
 
 
-def build_prompt(chat_id):
-    return BASE_PROMPT + "\nحالت کاربر: " + mood.get(chat_id, "neutral")
+def build_prompt(user_id):
+
+    user_mood = (
+        user_profiles
+        .get(user_id, {})
+        .get("mood", "neutral")
+    )
+
+    return (
+        BASE_PROMPT
+        + "\nحالت فعلی کاربر: "
+        + user_mood
+    )
 
 
 # ======================
@@ -139,14 +197,14 @@ def build_prompt(chat_id):
 # ======================
 
 MODELS = [
+    "gemini-3.5-flash",
     "gemini-2.5-flash",
-    "gemini-2.5-pro",
     "gemini-2.5-flash-lite"
 ]
 
 
 # ======================
-# GEMINI CALL
+# GEMINI
 # ======================
 
 def call_gemini(model, contents):
@@ -160,51 +218,74 @@ def call_gemini(model, contents):
         "contents": contents,
         "generationConfig": {
             "temperature": 0.9,
-            "maxOutputTokens": 900,
-            "topP": 0.95
+            "topP": 0.95,
+            "maxOutputTokens": 700
         }
     }
 
     return requests.post(
         url,
         json=payload,
-        timeout=60
+        timeout=90
     )
 
+
+# ======================
+# BAD OUTPUT DETECTION
+# ======================
 
 def is_bad_output(text):
 
     if not text:
         return True
 
-    if len(text.strip()) < 10:
+    text = text.strip()
+
+    if len(text) < 15:
         return True
 
-    return text.strip()[-1] not in ".!?؟"
+    bad_endings = [
+        "و",
+        "که",
+        "یا",
+        "..."
+    ]
+
+    if any(text.endswith(x) for x in bad_endings):
+        return True
+
+    if text[-1] not in ".!?؟🙂😂🥲❤️":
+        return True
+
+    return False
 
 
 # ======================
 # AI CORE
 # ======================
 
-def get_ai_response(chat_id, user_text):
+def get_ai_response(chat_id, user_id, user_text):
 
     try:
 
-        update_mood(chat_id, user_text)
+        update_user_profile(user_id, user_text)
 
         add_to_memory(chat_id, "user", user_text)
 
         contents = [{
             "role": "user",
             "parts": [{
-                "text": build_prompt(chat_id)
+                "text": build_prompt(user_id)
             }]
         }]
 
         for m in memory.get(chat_id, []):
 
-            role = "user" if m["role"] == "user" else "model"
+            role = (
+                "user"
+                if m["role"] == "user"
+                else "model"
+            )
 
             contents.append({
                 "role": role,
@@ -215,31 +296,54 @@ def get_ai_response(chat_id, user_text):
 
         for model in MODELS:
 
-            r = call_gemini(model, contents)
+            try:
 
-            print(f"MODEL {model} STATUS:", r.status_code)
+                r = call_gemini(model, contents)
 
-            if r.status_code != 200:
-                continue
+                print(
+                    f"MODEL {model} STATUS:",
+                    r.status_code
+                )
 
-            data = r.json()
+                if r.status_code != 200:
+                    print(r.text)
+                    continue
 
-            if "candidates" not in data:
-                continue
+                data = r.json()
 
-            reply = (
-                data["candidates"][0]
-                ["content"]["parts"][0]["text"]
-                .strip()
-            )
+                candidates = data.get("candidates")
 
-            if is_bad_output(reply):
+                if not candidates:
+                    continue
 
-                print("⚠️ retry due to cut output")
+                reply = (
+                    candidates[0]
+                    ["content"]["parts"][0]["text"]
+                    .strip()
+                )
 
-                r2 = call_gemini(model, contents)
+                # جلوگیری از پیام نصفه
 
-                if r2.status_code == 200:
+                retry_count = 0
+
+                while (
+                    is_bad_output(reply)
+                    and retry_count < 2
+                ):
+
+                    print("⚠️ retry bad output")
+
+                    retry_count += 1
+
+                    time.sleep(1)
+
+                    r2 = call_gemini(
+                        model,
+                        contents
+                    )
+
+                    if r2.status_code != 200:
+                        break
 
                     data2 = r2.json()
 
@@ -249,20 +353,57 @@ def get_ai_response(chat_id, user_text):
                         .strip()
                     )
 
-            if len(reply) < 5:
+                if len(reply) < 5:
+                    continue
+
+                add_to_memory(
+                    chat_id,
+                    "model",
+                    reply
+                )
+
+                return reply
+
+            except Exception as model_error:
+
+                print(
+                    "MODEL ERROR:",
+                    model_error
+                )
+
                 continue
 
-            add_to_memory(chat_id, "model", reply)
-
-            return reply
-
-        return "دسترسی من به هوش مصنوعی موقتا قطع شده 😵"
+        return "مغزم هنگ کرد 😵"
 
     except Exception as e:
 
         print("AI ERROR:", e)
 
         return "مغزم قاط زد 😭"
+
+
+# ======================
+# TELEGRAM SEND
+# ======================
+
+def send_message(chat_id, text, reply_id=None):
+
+    try:
+
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": text,
+                "reply_to_message_id": reply_id,
+                "allow_sending_without_reply": True
+            },
+            timeout=40
+        )
+
+    except Exception as e:
+
+        print("SEND ERROR:", e)
 
 
 # ======================
@@ -286,6 +427,15 @@ def webhook():
 
         chat_type = chat.get("type", "")
 
+        user = message.get("from", {})
+
+        user_id = user.get("id")
+
+        username = (
+            user.get("username", "")
+            .lower()
+        )
+
         if not text or not chat_id:
             return "OK", 200
 
@@ -293,7 +443,31 @@ def webhook():
         # ONLY GROUPS
         # ======================
 
-        if chat_type not in ["group", "supergroup"]:
+        if chat_type not in [
+            "group",
+            "supergroup"
+        ]:
+            return "OK", 200
+
+        # ======================
+        # ALLOWED GROUP ONLY
+        # ======================
+
+        if chat_id != ALLOWED_GROUP_IDS:
+
+            send_message(
+                chat_id,
+                "این ربات فقط برای گروه اصلی فعاله 🌙"
+            )
+
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/leaveChat",
+                json={
+                    "chat_id": chat_id
+                },
+                timeout=20
+            )
+
             return "OK", 200
 
         # ======================
@@ -302,7 +476,11 @@ def webhook():
 
         now = time.time()
 
-        if now - last_message_time.get(chat_id, 0) < MIN_DELAY:
+        if (
+            now
+            - last_message_time.get(chat_id, 0)
+            < MIN_DELAY
+        ):
             return "OK", 200
 
         last_message_time[chat_id] = now
@@ -313,20 +491,30 @@ def webhook():
 
         replied_to_bot = False
 
-        reply_msg = message.get("reply_to_message")
+        reply_msg = message.get(
+            "reply_to_message"
+        )
 
         if reply_msg:
 
-            from_user = reply_msg.get("from", {})
+            from_user = reply_msg.get(
+                "from",
+                {}
+            )
 
             if from_user.get("is_bot"):
 
                 bot_username = (
-                    from_user.get("username", "")
-                    .lower()
+                    from_user.get(
+                        "username",
+                        ""
+                    ).lower()
                 )
 
-                if bot_username == BOT_USERNAME:
+                if (
+                    bot_username
+                    == BOT_USERNAME
+                ):
                     replied_to_bot = True
 
         # ======================
@@ -343,20 +531,33 @@ def webhook():
             return "OK", 200
 
         # ======================
-        # AI RESPONSE
+        # SPECIAL OWNER MODE
         # ======================
 
-        reply = get_ai_response(chat_id, text)
+        if username in [
+            "pukev",
+            "walov"
+        ]:
 
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": reply,
-                "reply_to_message_id": message.get("message_id"),
-                "allow_sending_without_reply": True
-            },
-            timeout=30
+            text = (
+                "[پیام رئیس]\n"
+                + text
+            )
+
+        # ======================
+        # AI
+        # ======================
+
+        reply = get_ai_response(
+            chat_id,
+            user_id,
+            text
+        )
+
+        send_message(
+            chat_id,
+            reply,
+            message.get("message_id")
         )
 
         return "OK", 200
@@ -398,7 +599,9 @@ def set_webhook():
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", 10000))
+    port = int(
+        os.environ.get("PORT", 10000)
+    )
 
     app.run(
         host="0.0.0.0",
