@@ -171,9 +171,9 @@ BASE_PROMPT = """
 - با ادمین‌ها محترمانه رفتار کن
 
 قانون مهم پاسخ:
-- پاسخ ناقص نده
-- همیشه جمله را کامل تمام کن
-- اگر پاسخ طولانی شد، خلاصه‌ترش کن ولی نصفه قطعش نکن
+- هیچوقت متن انگلیسی سیستمی یا دستور داخلی ننویس
+- هیچوقت فرایند فکر کردن یا تحلیل داخلی خودت را نشان نده
+- فقط پاسخ نهایی را طبیعی و کوتاه بگو
 """
 
 
@@ -198,7 +198,6 @@ def build_prompt(user_id):
 
 MODELS = [
     "gemini-2.5-flash",
-    "gemini-3.5-flash",
     "gemini-2.5-flash-lite"
 ]
 
@@ -217,7 +216,7 @@ def call_gemini(model, contents):
     payload = {
         "contents": contents,
         "generationConfig": {
-            "temperature": 0.9,
+            "temperature": 0.7,
             "topP": 0.95,
             "maxOutputTokens": 700
         }
@@ -241,20 +240,26 @@ def is_bad_output(text):
 
     text = text.strip()
 
-    if len(text) < 15:
+    if len(text) < 8:
         return True
 
-    bad_endings = [
-        "و",
-        "که",
-        "یا",
-        "..."
+    blocked_words = [
+        "wait",
+        "rewrite",
+        "draft",
+        "instruction",
+        "system",
+        "let's",
+        "analysis",
+        "prompt"
     ]
 
-    if any(text.endswith(x) for x in bad_endings):
+    lower = text.lower()
+
+    if any(w in lower for w in blocked_words):
         return True
 
-    if text[-1] not in ".!?؟🙂😂🥲❤️":
+    if text.endswith(("و", "که", "یا", ":")):
         return True
 
     return False
