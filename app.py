@@ -197,8 +197,8 @@ def build_prompt(user_id):
 # ======================
 
 MODELS = [
-    "gemini-3.5-flash",
     "gemini-2.5-flash",
+    "gemini-3.5-flash",
     "gemini-2.5-flash-lite"
 ]
 
@@ -453,19 +453,14 @@ def webhook():
         # ALLOWED GROUP ONLY
         # ======================
 
-        if chat_id != ALLOWED_GROUP_IDS:
+        if chat_id not in ALLOWED_GROUP_IDS:
 
+            print("UNAUTHORIZED GROUP:", chat_id, chat.get("title", ""))
+            
             send_message(
                 chat_id,
-                "این ربات فقط برای گروه اصلی فعاله 🌙"
-            )
-
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/leaveChat",
-                json={
-                    "chat_id": chat_id
-                },
-                timeout=20
+                "این ربات فقط داخل گروه اصلی فعاله 🌙\n"
+                "برای استفاده باید به گروه رسمی اضافه بشی."
             )
 
             return "OK", 200
