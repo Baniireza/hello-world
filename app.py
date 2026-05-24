@@ -214,12 +214,13 @@ def build_prompt(chat_id):
 
 
 # ======================
-# مدل‌های موجود
+# مدل‌های موجود (رایگان و پایدار)
 # ======================
 
 MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite"
+    "gemini-3.5-flash",           # ✅ بهترین (Stable + رایگان)
+    "gemini-3.1-flash-lite",      # ✅ خوب (Stable + سبک)
+    "gemini-2.5-flash-lite",      # ✅ بک‌آپ (Stable + کار می‌کند)
 ]
 
 
