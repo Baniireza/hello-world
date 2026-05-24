@@ -2,11 +2,22 @@ import os
 import time
 import requests
 from flask import Flask, request
+import logging
 
 app = Flask(__name__)
 
 # ======================
-# ENV
+# لاگینگ
+# ======================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# ======================
+# محیط و تنظیمات
 # ======================
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -16,7 +27,7 @@ APP_URL = os.environ.get("APP_URL")
 BOT_USERNAME = "psychoteraphist_bot"
 
 # ======================
-# ALLOWED GROUPS
+# گروه‌های مجاز
 # ======================
 
 ALLOWED_GROUP_IDS = [
@@ -25,7 +36,7 @@ ALLOWED_GROUP_IDS = [
 ]
 
 # ======================
-# OWNER IDS
+# شناسه‌های مالک
 # ======================
 
 OWNER_IDS = [
@@ -36,7 +47,7 @@ OWNER_IDS = [
 unauthorized_notice_sent = {}
 
 # ======================
-# MEMORY / MOOD
+# حافظه و احساس
 # ======================
 
 memory = {}
@@ -49,11 +60,12 @@ MIN_DELAY = 2
 
 
 # ======================
-# MEMORY
+# توابع حافظه
 # ======================
 
 def add_to_memory(chat_id, role, content):
-
+    """پیام رو به حافظه اضافه کن"""
+    
     if not content:
         return
 
@@ -64,15 +76,19 @@ def add_to_memory(chat_id, role, content):
         "content": content
     })
 
+    # فقط آخرین 12 پیام رو نگه دار
     memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
+    
+    logger.info(f"حافظه {chat_id} به‌روز شد. تعداد پیام: {len(memory[chat_id])}")
 
 
 # ======================
-# MOOD
+# تابع احساس
 # ======================
 
 def update_mood(chat_id, text):
-
+    """احساس کاربر رو تشخیص بده"""
+    
     text = text.lower()
 
     negative = [
@@ -94,20 +110,19 @@ def update_mood(chat_id, text):
     ]
 
     if any(w in text for w in negative):
-
-        mood[chat_id] = "low"
+        mood[chat_id] = "پایین"
 
     elif any(w in text for w in positive):
-
-        mood[chat_id] = "happy"
+        mood[chat_id] = "خوشحال"
 
     else:
+        mood[chat_id] = "خنثی"
 
-        mood[chat_id] = "neutral"
+    logger.info(f"احساس {chat_id}: {mood[chat_id]}")
 
 
 # ======================
-# PROMPT
+# پرامپت پایه‌ای
 # ======================
 
 BASE_PROMPT = """
@@ -181,16 +196,17 @@ BASE_PROMPT = """
 
 
 def build_prompt(chat_id):
-
+    """پرامپت کامل رو با احساس کاربر بساز"""
+    
     return (
         BASE_PROMPT
         + "\nحالت کاربر: "
-        + mood.get(chat_id, "neutral")
+        + mood.get(chat_id, "خنثی")
     )
 
 
 # ======================
-# MODELS
+# مدل‌های موجود
 # ======================
 
 MODELS = [
@@ -200,11 +216,12 @@ MODELS = [
 
 
 # ======================
-# GEMINI CALL
+# فراخوانی جیمینی
 # ======================
 
 def call_gemini(model, contents):
-
+    """از جیمینی جواب بگیر"""
+    
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={GEMINI_API_KEY}"
@@ -214,24 +231,87 @@ def call_gemini(model, contents):
         "contents": contents,
         "generationConfig": {
             "temperature": 0.8,
-            "maxOutputTokens": 480,
+            "maxOutputTokens": 800,  # ✅ افزایش یافت
             "topP": 0.9
         }
     }
 
-    return requests.post(
-        url,
-        json=payload,
-        timeout=35
-    )
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            timeout=35
+        )
+        return response
+        
+    except requests.Timeout:
+        logger.warning(f"⏱️ {model} زیادی طول کشید و تایم‌اوت شد")
+        return None
+        
+    except requests.ConnectionError:
+        logger.warning(f"🌐 {model} شبکه مشکل دارد")
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ {model} خطای غیرمنتظره‌ای: {e}")
+        return None
 
 
 # ======================
-# BAD OUTPUT DETECTION
+# استخراج جواب ایمن
+# ======================
+
+def extract_reply(response_data):
+    """
+    این تابع ایمن‌تر داده‌های پاسخ رو نکاه می‌کنه
+    """
+    try:
+        # اول: آیا داده‌ای وجود داره؟
+        if not response_data:
+            logger.warning("⚠️ داده‌ای از سرور نیومد")
+            return None
+        
+        # دوم: آیا "candidates" (پیشنهادات) وجود دارن؟
+        candidates = response_data.get("candidates", [])
+        if not candidates:
+            logger.warning("⚠️ هیچ پیشنهادی نیست")
+            return None
+        
+        # سوم: اول‌ین پیشنهاد رو بردار
+        first_candidate = candidates[0]
+        
+        # چهارم: محتوای اون پیشنهاد رو بردار
+        content = first_candidate.get("content", {})
+        
+        # پنجم: قطعات متن رو بردار
+        parts = content.get("parts", [])
+        if not parts:
+            logger.warning("⚠️ متنی در قطعات نیست")
+            return None
+        
+        # ششم: متن اول رو بردار و فاصله‌های اضافی رو حذف کن
+        text = parts[0].get("text", "").strip()
+        
+        # هفتم: اگه متن خالی نبود، آن رو برگردان
+        if text:
+            logger.info(f"✅ جواب استخراج شد: {text[:50]}...")
+            return text
+        else:
+            logger.warning("⚠️ متن خالی است")
+            return None
+        
+    except Exception as e:
+        logger.error(f"❌ خطا در خواندن پاسخ: {e}")
+        return None
+
+
+# ======================
+# تشخیص خروجی بد
 # ======================
 
 def is_bad_output(text):
-
+    """بررسی کن که جواب بد یا نادرست هست یا نه"""
+    
     if not text:
         return True
 
@@ -271,17 +351,20 @@ def is_bad_output(text):
 
 
 # ======================
-# AI CORE
+# هسته هوش مصنوعی
 # ======================
 
 def get_ai_response(chat_id, user_text):
-
+    """جواب هوشمند رو بساز"""
+    
     try:
-
+        # احساس کاربر رو به‌روز کن
         update_mood(chat_id, user_text)
 
+        # پیام کاربر رو به حافظه اضافه کن
         add_to_memory(chat_id, "user", user_text)
 
+        # محتوا رو آماده کن
         contents = [{
             "role": "user",
             "parts": [{
@@ -289,6 +372,7 @@ def get_ai_response(chat_id, user_text):
             }]
         }]
 
+        # حافظه رو به محتوا اضافه کن
         for m in memory.get(chat_id, []):
 
             role = (
@@ -304,37 +388,36 @@ def get_ai_response(chat_id, user_text):
                 }]
             })
 
+        # مدل‌ها رو امتحان کن
         for model in MODELS:
 
+            logger.info(f"📡 درخواست از {model}")
+            
             r = call_gemini(model, contents)
 
-            print(
-                f"MODEL {model} STATUS:",
-                r.status_code
-            )
+            # اگه درخواست ناموفق بود
+            if r is None:
+                logger.warning(f"⚠️ {model} جواب نداد")
+                continue
 
             if r.status_code != 200:
+                logger.warning(f"❌ {model} وضعیت: {r.status_code}")
                 continue
 
-            data = r.json()
-
-            if "candidates" not in data:
+            # داده‌های پاسخ رو تجزیه کن
+            try:
+                data = r.json()
+            except:
+                logger.warning(f"❌ {model} داده‌های نامعتبر فرستاد")
                 continue
 
-            reply = (
-                data["candidates"][0]
-                ["content"]["parts"][0]["text"]
-                .strip()
-            )
+            # جواب رو بطور ایمن استخراج کن
+            reply = extract_reply(data)
 
-            # ======================
-            # RETRY ON BAD OUTPUT
-            # ======================
-
-            if is_bad_output(reply):
-
-                print("⚠️ retry once")
-
+            if not reply:
+                logger.info(f"⚠️ {model} جواب استخراج نشد، دوبار می‌کوشم...")
+                
+                # دوبار تلاش کن با پرامپت ساده‌تر
                 retry_contents = [{
                     "role": "user",
                     "parts": [{
@@ -346,50 +429,39 @@ def get_ai_response(chat_id, user_text):
                     }]
                 }]
 
-                r2 = call_gemini(
-                    model,
-                    retry_contents
-                )
+                r2 = call_gemini(model, retry_contents)
+                
+                if r2 and r2.status_code == 200:
+                    try:
+                        data2 = r2.json()
+                        reply = extract_reply(data2)
+                    except:
+                        logger.warning(f"❌ دوبار تلاش {model} شکست خورد")
+                        pass
 
-                if r2.status_code == 200:
+            # اگه جواب خوبی داشتیم
+            if reply and len(reply) >= 5 and not is_bad_output(reply):
+                add_to_memory(chat_id, "model", reply)
+                logger.info(f"✅ جواب نهایی برای {chat_id} آماده شد")
+                return reply
 
-                    data2 = r2.json()
-
-                    if "candidates" in data2:
-
-                        reply = (
-                            data2["candidates"][0]
-                            ["content"]["parts"][0]["text"]
-                            .strip()
-                        )
-
-            if len(reply) < 5:
-                continue
-
-            add_to_memory(
-                chat_id,
-                "model",
-                reply
-            )
-
-            return reply
-
+        # اگه هیچ مدلی کار نکرد
+        logger.error(f"❌ هیچ مدلی نتونست جواب بده")
         return "دسترسی من به هوش مصنوعی موقتا قطع شده 😵"
 
     except Exception as e:
-
-        print("AI ERROR:", e)
-
+        logger.error(f"🔥 خطای بحرانی در هوش مصنوعی: {e}")
         return "مغزم قاط زد 😭"
 
 
 # ======================
-# WEBHOOK
+# وب‌هوک تلگرام
 # ======================
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-
+    """پیام‌های تلگرام رو دریافت و جواب بده"""
+    
     try:
 
         update = request.get_json()
@@ -417,17 +489,18 @@ def webhook():
             return "OK", 200
 
         # ======================
-        # ONLY GROUPS
+        # فقط گروه‌ها
         # ======================
 
         if chat_type not in [
             "group",
             "supergroup"
         ]:
+            logger.info(f"❌ پیام از خارج گروه رد شد: {chat_type}")
             return "OK", 200
 
         # ======================
-        # ALLOWED GROUPS ONLY
+        # فقط گروه‌های مجاز
         # ======================
 
         if chat_id not in ALLOWED_GROUP_IDS:
@@ -450,11 +523,12 @@ def webhook():
                 )
 
                 unauthorized_notice_sent[chat_id] = time.time()
+                logger.warning(f"⚠️ گروه غیرمجاز: {chat_id}")
 
             return "OK", 200
 
         # ======================
-        # RATE LIMIT
+        # محدودیت سرعت
         # ======================
 
         now = time.time()
@@ -464,12 +538,13 @@ def webhook():
             - last_message_time.get(chat_id, 0)
             < MIN_DELAY
         ):
+            logger.info(f"⏱️ {chat_id} خیلی سریع پیام فرستاد")
             return "OK", 200
 
         last_message_time[chat_id] = now
 
         # ======================
-        # REPLY DETECTION
+        # تشخیص پاسخ به ربات
         # ======================
 
         replied_to_bot = False
@@ -501,7 +576,7 @@ def webhook():
                     replied_to_bot = True
 
         # ======================
-        # TRIGGERS
+        # شرایط جواب
         # ======================
 
         should_reply = (
@@ -511,10 +586,13 @@ def webhook():
         )
 
         if not should_reply:
+            logger.info(f"⏭️ پیام برای ربات نبود")
             return "OK", 200
 
+        logger.info(f"📨 پیام جدید از {username} ({user_id}): {text[:50]}")
+
         # ======================
-        # OWNER MODE
+        # حالت رئیس
         # ======================
 
         if (
@@ -523,9 +601,10 @@ def webhook():
         ):
 
             text = "[پیام رئیس]\n" + text
+            logger.info(f"👑 این پیام از رئیس است")
 
         # ======================
-        # AI RESPONSE
+        # جواب هوشمند
         # ======================
 
         reply = get_ai_response(
@@ -533,6 +612,12 @@ def webhook():
             text
         )
 
+        # اگه جواب خالی بود
+        if not reply or len(reply) < 3:
+            reply = "متاسفانه نتونستم جواب خوبی بدم 😅"
+            logger.warning(f"⚠️ جواب خالی یا کوتاه برای {chat_id}")
+
+        # جواب رو بفرست
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={
@@ -545,28 +630,33 @@ def webhook():
             timeout=30
         )
 
+        logger.info(f"✅ جواب برای {chat_id} فرستاده شد")
+
         return "OK", 200
 
     except Exception as e:
 
-        print("WEBHOOK ERROR:", e)
+        logger.error(f"🔥 خطای وب‌هوک: {e}")
 
         return "ERROR", 500
 
 
 # ======================
-# ROUTES
+# مسیرهای اصلی
 # ======================
 
 @app.route("/")
 def home():
-
+    """صفحه اصلی"""
+    
+    logger.info("✅ ربات در حال اجرا است")
     return "Psycho Bot Running ✅"
 
 
 @app.route("/set_webhook")
 def set_webhook():
-
+    """وب‌هوک تلگرام رو فعال کن"""
+    
     url = f"{APP_URL}/webhook"
 
     r = requests.get(
@@ -576,11 +666,12 @@ def set_webhook():
         }
     )
 
+    logger.info(f"🔗 وب‌هوک تنظیم شد: {url}")
     return r.text
 
 
 # ======================
-# RUN
+# اجرای برنامه
 # ======================
 
 if __name__ == "__main__":
@@ -589,7 +680,10 @@ if __name__ == "__main__":
         os.environ.get("PORT", 10000)
     )
 
+    logger.info(f"🚀 برنامه شروع شد. پورت: {port}")
+
     app.run(
         host="0.0.0.0",
-        port=port
+        port=port,
+        debug=False
     )
