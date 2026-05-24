@@ -2,7 +2,6 @@ import os
 import time
 import requests
 from flask import Flask, request
-from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
 
@@ -17,7 +16,7 @@ APP_URL = os.environ.get("APP_URL")
 BOT_USERNAME = "psychoteraphist_bot"
 
 # ======================
-# GROUPS
+# ALLOWED GROUPS
 # ======================
 
 ALLOWED_GROUP_IDS = [
@@ -25,45 +24,47 @@ ALLOWED_GROUP_IDS = [
     -1003796994646
 ]
 
-OWNER_IDS = [7832517846, 533511705]
+# ======================
+# OWNER IDS
+# ======================
+
+OWNER_IDS = [
+    7832517846,
+    533511705
+]
+
+unauthorized_notice_sent = {}
+
+# ======================
+# MEMORY / MOOD
+# ======================
+
+memory = {}
+mood = {}
+
+MAX_MEMORY = 12
+
+last_message_time = {}
+MIN_DELAY = 2
+
 
 # ======================
 # MEMORY
 # ======================
 
-memory = {}
-mood = {}
-message_log = {}
-
-MAX_MEMORY = 12
-MAX_LOG = 80
-
-last_message_time = {}
-MIN_DELAY = 2
-
-unauthorized_notice_sent = {}
-
-# ======================
-# MEMORY FUNCTIONS
-# ======================
-
 def add_to_memory(chat_id, role, content):
+
     if not content:
         return
 
     memory.setdefault(chat_id, [])
-    memory[chat_id].append({"role": role, "content": content})
-    memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
 
-
-def log_message(chat_id, username, text):
-    message_log.setdefault(chat_id, [])
-    message_log[chat_id].append({
-        "user": username,
-        "text": text,
-        "time": time.time()
+    memory[chat_id].append({
+        "role": role,
+        "content": content
     })
-    message_log[chat_id] = message_log[chat_id][-MAX_LOG:]
+
+    memory[chat_id] = memory[chat_id][-MAX_MEMORY:]
 
 
 # ======================
@@ -71,13 +72,37 @@ def log_message(chat_id, username, text):
 # ======================
 
 def update_mood(chat_id, text):
+
     text = text.lower()
 
-    if any(w in text for w in ["بد","غم","تنها","استرس","اضطراب","افسرده","نمی‌تونم"]):
+    negative = [
+        "بد",
+        "غم",
+        "تنها",
+        "استرس",
+        "اضطراب",
+        "افسرده",
+        "نمی‌تونم"
+    ]
+
+    positive = [
+        "خوبم",
+        "عالی",
+        "مرسی",
+        "اوکی",
+        "خوشحال"
+    ]
+
+    if any(w in text for w in negative):
+
         mood[chat_id] = "low"
-    elif any(w in text for w in ["خوبم","عالی","مرسی","اوکی","خوشحال"]):
+
+    elif any(w in text for w in positive):
+
         mood[chat_id] = "happy"
+
     else:
+
         mood[chat_id] = "neutral"
 
 
@@ -154,16 +179,36 @@ BASE_PROMPT = """
 - فقط پاسخ نهایی را طبیعی و کوتاه بگو
 """
 
+
 def build_prompt(chat_id):
-    return BASE_PROMPT + "\nحالت کاربر: " + mood.get(chat_id, "neutral")
+
+    return (
+        BASE_PROMPT
+        + "\nحالت کاربر: "
+        + mood.get(chat_id, "neutral")
+    )
 
 
 # ======================
-# GEMINI
+# MODELS
+# ======================
+
+MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
+]
+
+
+# ======================
+# GEMINI CALL
 # ======================
 
 def call_gemini(model, contents):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent?key={GEMINI_API_KEY}"
+    )
 
     payload = {
         "contents": contents,
@@ -174,97 +219,168 @@ def call_gemini(model, contents):
         }
     }
 
-    return requests.post(url, json=payload, timeout=35)
-
-
-# ======================
-# SUMMARY (NEWSPAPER)
-# ======================
-
-def generate_newspaper(chat_id):
-    logs = message_log.get(chat_id, [])
-
-    if not logs:
-        return None
-
-    text = "\n".join([f"{m['user']}: {m['text']}" for m in logs])
-
-    prompt = f"""
-این پیام‌های 6 ساعت اخیر یک گروه است:
-
-{text}
-
-یک "روزنامه تلگرامی بامزه" بساز:
-- طنز
-- بخش‌بندی (خبر داغ / درام / خنده‌دار)
-- کوتاه
-"""
-
-    r = call_gemini("gemini-2.5-flash", [{
-        "role": "user",
-        "parts": [{"text": prompt}]
-    }])
-
-    try:
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    except:
-        return None
-
-
-def send_message(chat_id, text):
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": chat_id, "text": text},
-        timeout=20
+    return requests.post(
+        url,
+        json=payload,
+        timeout=35
     )
 
 
 # ======================
-# JOB (EVERY 6 HOURS)
+# BAD OUTPUT DETECTION
 # ======================
 
-def newspaper_job():
-    for chat_id in ALLOWED_GROUP_IDS:
-        try:
-            report = generate_newspaper(chat_id)
+def is_bad_output(text):
 
-            if report:
-                send_message(chat_id, "🗞 روزنامه ۶ ساعته:\n\n" + report)
+    if not text:
+        return True
 
-                message_log[chat_id] = []
+    text = text.strip()
 
-        except Exception as e:
-            print("NEWSPAPER ERROR:", e)
+    if len(text) < 6:
+        return True
 
+    bad_words = [
+        "instruction",
+        "system",
+        "prompt",
+        "analysis",
+        "rewrite",
+        "let's"
+    ]
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(newspaper_job, "interval", hours=6)
-scheduler.start()
+    lower = text.lower()
+
+    if any(w in lower for w in bad_words):
+        return True
+
+    bad_endings = [
+        "و",
+        "که",
+        "یا",
+        ":",
+        "،",
+        "...",
+        "...."
+    ]
+
+    if any(text.endswith(x) for x in bad_endings):
+        return True
+
+    return False
 
 
 # ======================
-# AI CORE (UNCHANGED LOGIC)
+# AI CORE
 # ======================
 
 def get_ai_response(chat_id, user_text):
-    update_mood(chat_id, user_text)
-    add_to_memory(chat_id, "user", user_text)
-
-    contents = [{
-        "role": "user",
-        "parts": [{"text": build_prompt(chat_id)}]
-    }]
-
-    for m in memory.get(chat_id, []):
-        role = "user" if m["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [{"text": m["content"]}]})
-
-    r = call_gemini("gemini-2.5-flash", contents)
 
     try:
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    except:
-        return "..."
+
+        update_mood(chat_id, user_text)
+
+        add_to_memory(chat_id, "user", user_text)
+
+        contents = [{
+            "role": "user",
+            "parts": [{
+                "text": build_prompt(chat_id)
+            }]
+        }]
+
+        for m in memory.get(chat_id, []):
+
+            role = (
+                "user"
+                if m["role"] == "user"
+                else "model"
+            )
+
+            contents.append({
+                "role": role,
+                "parts": [{
+                    "text": m["content"]
+                }]
+            })
+
+        for model in MODELS:
+
+            r = call_gemini(model, contents)
+
+            print(
+                f"MODEL {model} STATUS:",
+                r.status_code
+            )
+
+            if r.status_code != 200:
+                continue
+
+            data = r.json()
+
+            if "candidates" not in data:
+                continue
+
+            reply = (
+                data["candidates"][0]
+                ["content"]["parts"][0]["text"]
+                .strip()
+            )
+
+            # ======================
+            # RETRY ON BAD OUTPUT
+            # ======================
+
+            if is_bad_output(reply):
+
+                print("⚠️ retry once")
+
+                retry_contents = [{
+                    "role": "user",
+                    "parts": [{
+                        "text":
+                            build_prompt(chat_id)
+                            + "\n\nکاربر گفته:\n"
+                            + user_text
+                            + "\n\nفقط یک پاسخ کامل، کوتاه و فارسی بده."
+                    }]
+                }]
+
+                r2 = call_gemini(
+                    model,
+                    retry_contents
+                )
+
+                if r2.status_code == 200:
+
+                    data2 = r2.json()
+
+                    if "candidates" in data2:
+
+                        reply = (
+                            data2["candidates"][0]
+                            ["content"]["parts"][0]["text"]
+                            .strip()
+                        )
+
+            if len(reply) < 5:
+                continue
+
+            add_to_memory(
+                chat_id,
+                "model",
+                reply
+            )
+
+            return reply
+
+        return "دسترسی من به هوش مصنوعی موقتا قطع شده 😵"
+
+    except Exception as e:
+
+        print("AI ERROR:", e)
+
+        return "مغزم قاط زد 😭"
 
 
 # ======================
@@ -273,61 +389,207 @@ def get_ai_response(chat_id, user_text):
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    update = request.get_json()
-    message = update.get("message", {})
 
-    text = message.get("text", "")
-    chat_id = message.get("chat", {}).get("id")
-    chat_type = message.get("chat", {}).get("type", "")
-    user = message.get("from", {})
+    try:
 
-    username = (user.get("username") or "").lower()
+        update = request.get_json()
 
-    if chat_type in ["group", "supergroup"]:
-        log_message(chat_id, username, text)
+        message = update.get("message", {})
 
-    if not text or not chat_id:
+        text = message.get("text", "")
+
+        chat = message.get("chat", {})
+
+        chat_id = chat.get("id")
+
+        chat_type = chat.get("type", "")
+
+        user = message.get("from", {})
+
+        user_id = user.get("id")
+
+        username = (
+            user.get("username", "")
+            .lower()
+        )
+
+        if not text or not chat_id:
+            return "OK", 200
+
+        # ======================
+        # ONLY GROUPS
+        # ======================
+
+        if chat_type not in [
+            "group",
+            "supergroup"
+        ]:
+            return "OK", 200
+
+        # ======================
+        # ALLOWED GROUPS ONLY
+        # ======================
+
+        if chat_id not in ALLOWED_GROUP_IDS:
+
+            last_notice = (
+                unauthorized_notice_sent
+                .get(chat_id, 0)
+            )
+
+            if time.time() - last_notice > 3600:
+
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "text":
+                            "این ربات فقط داخل گروه اصلی فعاله 🌙"
+                    },
+                    timeout=20
+                )
+
+                unauthorized_notice_sent[chat_id] = time.time()
+
+            return "OK", 200
+
+        # ======================
+        # RATE LIMIT
+        # ======================
+
+        now = time.time()
+
+        if (
+            now
+            - last_message_time.get(chat_id, 0)
+            < MIN_DELAY
+        ):
+            return "OK", 200
+
+        last_message_time[chat_id] = now
+
+        # ======================
+        # REPLY DETECTION
+        # ======================
+
+        replied_to_bot = False
+
+        reply_msg = message.get(
+            "reply_to_message"
+        )
+
+        if reply_msg:
+
+            from_user = reply_msg.get(
+                "from",
+                {}
+            )
+
+            if from_user.get("is_bot"):
+
+                bot_username = (
+                    from_user.get(
+                        "username",
+                        ""
+                    ).lower()
+                )
+
+                if (
+                    bot_username
+                    == BOT_USERNAME
+                ):
+                    replied_to_bot = True
+
+        # ======================
+        # TRIGGERS
+        # ======================
+
+        should_reply = (
+            replied_to_bot
+            or "psycho" in text.lower()
+            or "سایکو" in text.lower()
+        )
+
+        if not should_reply:
+            return "OK", 200
+
+        # ======================
+        # OWNER MODE
+        # ======================
+
+        if (
+            username in ["pukev", "walov"]
+            or user_id in OWNER_IDS
+        ):
+
+            text = "[پیام رئیس]\n" + text
+
+        # ======================
+        # AI RESPONSE
+        # ======================
+
+        reply = get_ai_response(
+            chat_id,
+            text
+        )
+
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": reply,
+                "reply_to_message_id":
+                    message.get("message_id"),
+                "allow_sending_without_reply": True
+            },
+            timeout=30
+        )
+
         return "OK", 200
 
-    if chat_type not in ["group", "supergroup"]:
-        return "OK", 200
+    except Exception as e:
 
-    if chat_id not in ALLOWED_GROUP_IDS:
-        return "OK", 200
+        print("WEBHOOK ERROR:", e)
 
-    now = time.time()
-    if now - last_message_time.get(chat_id, 0) < MIN_DELAY:
-        return "OK", 200
+        return "ERROR", 500
 
-    last_message_time[chat_id] = now
 
-    if not ("psycho" in text.lower() or "سایکو" in text.lower()):
-        return "OK", 200
-
-    reply = get_ai_response(chat_id, text)
-
-    send_message(chat_id, reply)
-
-    return "OK", 200
-
+# ======================
+# ROUTES
+# ======================
 
 @app.route("/")
 def home():
+
     return "Psycho Bot Running ✅"
 
 
 @app.route("/set_webhook")
 def set_webhook():
+
     url = f"{APP_URL}/webhook"
 
     r = requests.get(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-        params={"url": url}
+        params={
+            "url": url
+        }
     )
 
     return r.text
 
 
+# ======================
+# RUN
+# ======================
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+
+    port = int(
+        os.environ.get("PORT", 10000)
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
