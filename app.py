@@ -231,7 +231,7 @@ def call_gemini(model, contents):
         "contents": contents,
         "generationConfig": {
             "temperature": 0.8,
-            "maxOutputTokens": 800,  # ✅ افزایش یافت
+            "maxOutputTokens": 1500,  # ✅ افزایش یافت از 800 به 1500
             "topP": 0.9
         }
     }
@@ -264,6 +264,7 @@ def call_gemini(model, contents):
 def extract_reply(response_data):
     """
     این تابع ایمن‌تر داده‌های پاسخ رو نکاه می‌کنه
+    ✅ تمام قطعات متن رو یکجا می‌کند
     """
     try:
         # اول: آیا داده‌ای وجود داره؟
@@ -280,19 +281,29 @@ def extract_reply(response_data):
         # سوم: اول‌ین پیشنهاد رو بردار
         first_candidate = candidates[0]
         
-        # چهارم: محتوای اون پیشنهاد رو بردار
+        # چهارم: وضعیت پایان رو بررسی کن
+        finish_reason = first_candidate.get("finishReason")
+        if finish_reason == "MAX_TOKENS":
+            logger.warning("⚠️ جواب قطع شد زیرا توکن‌ها تمام شدند!")
+        
+        # پنجم: محتوای اون پیشنهاد رو بردار
         content = first_candidate.get("content", {})
         
-        # پنجم: قطعات متن رو بردار
+        # ششم: قطعات متن رو بردار
         parts = content.get("parts", [])
         if not parts:
             logger.warning("⚠️ متنی در قطعات نیست")
             return None
         
-        # ششم: متن اول رو بردار و فاصله‌های اضافی رو حذف کن
-        text = parts[0].get("text", "").strip()
+        # هفتم: ✅ تمام قطعات متن رو یکجا کن (نه فقط اول)
+        text = ""
+        for part in parts:
+            if "text" in part:
+                text += part.get("text", "")
         
-        # هفتم: اگه متن خالی نبود، آن رو برگردان
+        text = text.strip()
+        
+        # هشتم: اگه متن خالی نبود، آن رو برگردان
         if text:
             logger.info(f"✅ جواب استخراج شد: {text[:50]}...")
             return text
@@ -411,7 +422,7 @@ def get_ai_response(chat_id, user_text):
                 logger.warning(f"❌ {model} داده‌های نامعتبر فرستاد")
                 continue
 
-            # جواب رو بطور ایمن استخراج کن
+            # جواب رو بطور ایمن استخراج کن (✅ تمام قطعات)
             reply = extract_reply(data)
 
             if not reply:
@@ -442,7 +453,7 @@ def get_ai_response(chat_id, user_text):
             # اگه جواب خوبی داشتیم
             if reply and len(reply) >= 5 and not is_bad_output(reply):
                 add_to_memory(chat_id, "model", reply)
-                logger.info(f"✅ جواب نهایی برای {chat_id} آماده شد")
+                logger.info(f"✅ جو��ب نهایی برای {chat_id} آماده شد")
                 return reply
 
         # اگه هیچ مدلی کار نکرد
