@@ -94,12 +94,15 @@ def update_mood(chat_id, text):
     ]
 
     if any(w in text for w in negative):
+
         mood[chat_id] = "low"
 
     elif any(w in text for w in positive):
+
         mood[chat_id] = "happy"
 
     else:
+
         mood[chat_id] = "neutral"
 
 
@@ -211,7 +214,7 @@ def call_gemini(model, contents):
         "contents": contents,
         "generationConfig": {
             "temperature": 0.8,
-            "maxOutputTokens": 500,
+            "maxOutputTokens": 300,
             "topP": 0.9
         }
     }
@@ -234,7 +237,7 @@ def is_bad_output(text):
 
     text = text.strip()
 
-    if len(text) < 8:
+    if len(text) < 6:
         return True
 
     bad_words = [
@@ -256,7 +259,9 @@ def is_bad_output(text):
         "که",
         "یا",
         ":",
-        "،"
+        "،",
+        "...",
+        "...."
     ]
 
     if any(text.endswith(x) for x in bad_endings):
@@ -330,11 +335,14 @@ def get_ai_response(chat_id, user_text):
 
                 print("⚠️ retry once")
 
-                retry_contents = contents + [{
+                retry_contents = [{
                     "role": "user",
                     "parts": [{
                         "text":
-                        "پیامت ناقص بود. کامل و کوتاه بفرست."
+                            build_prompt(chat_id)
+                            + "\n\nکاربر گفته:\n"
+                            + user_text
+                            + "\n\nفقط یک پاسخ کامل، کوتاه و فارسی بده."
                     }]
                 }]
 
@@ -436,14 +444,12 @@ def webhook():
                     json={
                         "chat_id": chat_id,
                         "text":
-                        "این ربات فقط داخل گروه اصلی فعاله 🌙"
+                            "این ربات فقط داخل گروه اصلی فعاله 🌙"
                     },
                     timeout=20
                 )
 
-                unauthorized_notice_sent[
-                    chat_id
-                ] = time.time()
+                unauthorized_notice_sent[chat_id] = time.time()
 
             return "OK", 200
 
@@ -512,17 +518,11 @@ def webhook():
         # ======================
 
         if (
-            username in [
-                "pukev",
-                "walov"
-            ]
+            username in ["pukev", "walov"]
             or user_id in OWNER_IDS
         ):
 
-            text = (
-                "[پیام رئیس]\n"
-                + text
-            )
+            text = "[پیام رئیس]\n" + text
 
         # ======================
         # AI RESPONSE
@@ -539,7 +539,7 @@ def webhook():
                 "chat_id": chat_id,
                 "text": reply,
                 "reply_to_message_id":
-                message.get("message_id"),
+                    message.get("message_id"),
                 "allow_sending_without_reply": True
             },
             timeout=30
