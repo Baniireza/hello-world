@@ -58,6 +58,14 @@ MAX_MEMORY = 12
 last_message_time = {}
 MIN_DELAY = 2
 
+# ======================
+# تنظیمات Retry
+# ======================
+
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # ثانیه (برای Timeout و 503)
+RATE_LIMIT_DELAY = 5  # ثانیه (برای 429)
+
 
 # ======================
 # توابع حافظه
@@ -216,11 +224,11 @@ MODELS = [
 
 
 # ======================
-# فراخوانی جیمینی
+# فراخوانی جیمینی (با Retry Logic)
 # ======================
 
 def call_gemini(model, contents):
-    """از جیمینی جواب بگیر"""
+    """از جیمینی جواب بگیر با مدیریت خطا و Retry"""
     
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -231,30 +239,66 @@ def call_gemini(model, contents):
         "contents": contents,
         "generationConfig": {
             "temperature": 0.8,
-            "maxOutputTokens": 1500,  # ✅ افزایش یافت از 800 به 1500
+            "maxOutputTokens": 1500,  # ✅ افزایش یافت
             "topP": 0.9
         }
     }
 
-    try:
-        response = requests.post(
-            url,
-            json=payload,
-            timeout=35
-        )
-        return response
-        
-    except requests.Timeout:
-        logger.warning(f"⏱️ {model} زیادی طول کشید و تایم‌اوت شد")
-        return None
-        
-    except requests.ConnectionError:
-        logger.warning(f"🌐 {model} شبکه مشکل دارد")
-        return None
-        
-    except Exception as e:
-        logger.error(f"❌ {model} خطای غیرمنتظره‌ای: {e}")
-        return None
+    # ✅ سعی کن MAX_RETRIES بار
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                timeout=35
+            )
+            
+            # اگر موفق بود
+            if response.status_code == 200:
+                logger.info(f"✅ {model} موفق (تلاش {attempt + 1})")
+                return response
+            
+            # اگر 429 (Rate Limit) بود
+            if response.status_code == 429:
+                logger.warning(f"⏱️ {model} درخواست بیش‌ازحد (تلاش {attempt + 1}/{MAX_RETRIES})")
+                if attempt < MAX_RETRIES - 1:
+                    logger.info(f"⏳ {RATE_LIMIT_DELAY} ثانیه صبر می‌کنم...")
+                    time.sleep(RATE_LIMIT_DELAY)
+                continue
+            
+            # اگر 503 (Service Unavailable) بود
+            if response.status_code == 503:
+                logger.warning(f"🔧 {model} سرور خراب است (تلاش {attempt + 1}/{MAX_RETRIES})")
+                if attempt < MAX_RETRIES - 1:
+                    logger.info(f"⏳ {RETRY_DELAY} ثانیه صبر می‌کنم...")
+                    time.sleep(RETRY_DELAY)
+                continue
+            
+            # سایر خطاهای HTTP
+            logger.warning(f"❌ {model} وضعیت: {response.status_code}")
+            return response
+            
+        except requests.Timeout:
+            logger.warning(f"⏱️ {model} تایم‌اوت شد (تلاش {attempt + 1}/{MAX_RETRIES})")
+            if attempt < MAX_RETRIES - 1:
+                logger.info(f"⏳ {RETRY_DELAY} ثانیه صبر می‌کنم...")
+                time.sleep(RETRY_DELAY)
+            continue
+            
+        except requests.ConnectionError:
+            logger.warning(f"🌐 {model} خطای اتصال (تلاش {attempt + 1}/{MAX_RETRIES})")
+            if attempt < MAX_RETRIES - 1:
+                logger.info(f"⏳ {RETRY_DELAY} ثانیه صبر می‌کنم...")
+                time.sleep(RETRY_DELAY)
+            continue
+            
+        except Exception as e:
+            logger.error(f"❌ {model} خطای غیرمنتظره‌ای: {e}")
+            return None
+    
+    # بعد از تمام تلاش‌ها
+    logger.error(f"❌ {model} بعد از {MAX_RETRIES} تلاش ناموفق")
+    return None
 
 
 # ======================
@@ -453,7 +497,7 @@ def get_ai_response(chat_id, user_text):
             # اگه جواب خوبی داشتیم
             if reply and len(reply) >= 5 and not is_bad_output(reply):
                 add_to_memory(chat_id, "model", reply)
-                logger.info(f"✅ جو��ب نهایی برای {chat_id} آماده شد")
+                logger.info(f"✅ جواب نهایی برای {chat_id} آماده شد")
                 return reply
 
         # اگه هیچ مدلی کار نکرد
