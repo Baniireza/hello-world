@@ -98,7 +98,6 @@ def update_mood(chat_id, text):
 def call_gemini(model, contents, chat_id):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
     
-    # تزریق درست سیستم پرامپت بر اساس استاندارد گوگل
     system_instruction = f"{BASE_PROMPT}\n\n[وضعیت فعلی اتمسفر کاربر در این چت: {mood.get(chat_id, 'خنثی')}]"
 
     payload = {
@@ -107,15 +106,22 @@ def call_gemini(model, contents, chat_id):
             "parts": [{"text": system_instruction}]
         },
         "generationConfig": {
-            "temperature": 0.85, # کمی بالاتر برای افزایش خلاقیت و بامزگی در طنز
-            "maxOutputTokens": 400, # برای چت گروهی ۴۰۰ توکن هم زیاد است و جلوی هزینه‌ها را می‌گیرد
+            "temperature": 0.75,       # کمی پایین‌تر آوردیم تا مدل کمتر حاشیه‌پردازی کند و مستقیم پاسخ دهد
+            "maxOutputTokens": 1200,    # 🚀 افزایش یافت تا جملات به هیچ وجه نصفه‌کاره قطع نشوند
             "topP": 0.95
-        }
+        },
+        # 🚀 خاموش کردن فیلترهای حساسیت جیمینی برای جلوگیری از بلاک شدن بحث‌های روانشناسی
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        ]
     }
 
     for attempt in range(MAX_RETRIES):
         try:
-            response = requests.post(url, json=payload, timeout=20) # کاهش تایم‌اوت برای جلوگیری از بلاک شدن وب‌هوک
+            response = requests.post(url, json=payload, timeout=25)
             
             if response.status_code == 200:
                 logger.info(f"✅ {model} موفق (تلاش {attempt + 1})")
