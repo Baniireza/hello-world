@@ -153,13 +153,14 @@ def extract_reply(response_data):
             
         parts = first_candidate.get("content", {}).get("parts", [])
         text = "".join([part.get("text", "") for part in parts]).strip()
-        return text if text else None
+        return str(text) if text else None # تبدیل صریح به استرینگ برای امنیت بیشتر
     except Exception as e:
         logger.error(f"❌ خطا در استخراج متن: {e}")
         return None
 
 def is_bad_output(text):
-    if not text or len(text).strip() < 2: return True
+    if not text or not isinstance(text, str) or len(text.strip()) < 2: 
+        return True
     bad_words = ["instruction", "system", "prompt", "analysis", "ai model"]
     lower = text.lower()
     return any(w in lower for w in bad_words)
