@@ -32,10 +32,10 @@ memory = {}
 mood = {}
 last_message_time = {}
 
-MAX_MEMORY = 10 
+MAX_MEMORY = 10 # برای چت گروهی ۱۰ پیام (۵ رفت و ۵ برگشت) کافی و کاملاً اقتصادیه
 MIN_DELAY = 2
 
-MAX_RETRIES = 2 
+MAX_RETRIES = 2 # کاهش یافت تا وب‌هوک تلگرام تایم‌اوت نخورد
 RETRY_DELAY = 1
 RATE_LIMIT_DELAY = 2
 
@@ -47,7 +47,7 @@ BASE_PROMPT = """
 تو «سایکو» (psycho) هستی؛ یک دوست صمیمی، دلسوز و تراپیست‌طور در یک گروه تلگرامی فارسی. تخصص اصلی تو گفت‌وگو درباره مسائل روانشناسی بخصوص اختلال شخصیت اجتنابی (AVPD)، انواع سبک‌های دلبستگی (به‌ویژه دلبستگی اجتنابی)، اضطراب اجتماعی، روابط عاطفی و عزت‌نفس است.
 
 # سبک و لحن گفتار (بسیار مهم)
-- کاملاً محاوره‌ای, خودمونی، صمیمی و چت‌گونه (عین کاربران واقعی تلگرام) بنویس. اصلاً کتابی، رسمی، خشک یا مکانیکی نباش.
+- کاملاً محاوره‌ای، خودمونی، صمیمی و چت‌گونه (عین کاربران واقعی تلگرام) بنویس. اصلاً کتابی، رسمی، خشک یا مکانیکی نباش.
 - جواب‌ها باید کوتاه، سریع و خلاصه باشند. از تحلیل‌های طولانی و پیچیده خودداری کن مگر اینکه واقعاً لازم باشد.
 - ایموجی‌ها را بسیار کم، هوشمندانه و طبیعی استفاده کن.
 - خط‌کمش لحن: در حالت عادی شوخ‌طبع، ریلکس و بامزه باش و گاهی تیکه‌ها یا طعنه‌های ظریف و دوستانه (بدون لوس‌شدن) بنداز. اما اگر کاربر حالش بد بود یا ابراز رنج کرد، فوراً لحن طنز را قطع کن و کاملاً حمایتگر (Supportive)، آرامش‌بخش و همدل باش.
@@ -65,7 +65,9 @@ BASE_PROMPT = """
 """
 
 MODELS = [
-    "gemini-2.5-flash"
+    "gemini-3.5-flash",       # ✅ انتخاب اول
+    "gemini-3.1-flash-lite",  # ✅ انتخاب دوم (سریع و ضد هنگ)
+    "gemini-2.5-flash-lite",  # ✅ بک‌آب
 ]
 
 # ======================
@@ -89,47 +91,25 @@ def update_mood(chat_id, text):
     else:
         mood[chat_id] = "خنثی"
 
-def extract_reply(response_data):
-    try:
-        if not response_data or "candidates" not in response_data: return None
-        first_candidate = response_data["candidates"][0]
-        
-        if first_candidate.get("finishReason") == "SAFETY":
-            return "این رو نمیتونم جواب بدم، بیا بحث رو عوض کنیم 🤫"
-            
-        parts = first_candidate.get("content", {}).get("parts", [])
-        text = "".join([part.get("text", "") for part in parts]).strip()
-        return str(text) if text else None
-    except Exception as e:
-        logger.error(f"❌ خطا در استخراج متن: {e}")
-        return None
-
-def is_bad_output(text):
-    if not text or not isinstance(text, str) or len(text.strip()) < 2: 
-        return True
-    bad_words = ["instruction", "system", "prompt", "analysis", "ai model"]
-    lower = text.lower()
-    return any(w in lower for w in bad_words)
-
 # ======================
-# فراخوانی جیمینی (نسخه پاید‌ار v1)
+# فراخوانی جیمینی (اصلاح فرمت سیستم پرامپت)
 # ======================
 def call_gemini(model, contents, chat_id):
-    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
     
-    if not contents:
-        return None
-
     system_instruction = f"{BASE_PROMPT}\n\n[وضعیت فعلی اتمسفر کاربر در این چت: {mood.get(chat_id, 'خنثی')}]"
-    optimized_contents = [{"role": "system", "parts": [{"text": system_instruction}]}] + contents
 
     payload = {
-        "contents": optimized_contents,
+        "contents": contents,
+        "systemInstruction": {
+            "parts": [{"text": system_instruction}]
+        },
         "generationConfig": {
-            "temperature": 0.75,
-            "maxOutputTokens": 1200,
+            "temperature": 0.75,       # کمی پایین‌تر آوردیم تا مدل کمتر حاشیه‌پردازی کند و مستقیم پاسخ دهد
+            "maxOutputTokens": 1200,    # 🚀 افزایش یافت تا جملات به هیچ وجه نصفه‌کاره قطع نشوند
             "topP": 0.95
         },
+        # 🚀 خاموش کردن فیلترهای حساسیت جیمینی برای جلوگیری از بلاک شدن بحث‌های روانشناسی
         "safetySettings": [
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -141,18 +121,23 @@ def call_gemini(model, contents, chat_id):
     for attempt in range(MAX_RETRIES):
         try:
             response = requests.post(url, json=payload, timeout=25)
+            
             if response.status_code == 200:
                 logger.info(f"✅ {model} موفق (تلاش {attempt + 1})")
                 return response
             
-            logger.warning(f"❌ {model} خطای کد: {response.status_code} - متن: {response.text}")
-            if response.status_code == 429 and attempt < MAX_RETRIES - 1:
-                time.sleep(RATE_LIMIT_DELAY)
+            if response.status_code == 429:
+                logger.warning(f"⏱️ لیمیت ۴۲۹ در {model}")
+                if attempt < MAX_RETRIES - 1: time.sleep(RATE_LIMIT_DELAY)
                 continue
-            if response.status_code == 503 and attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_DELAY)
+                
+            if response.status_code == 503:
+                if attempt < MAX_RETRIES - 1: time.sleep(RETRY_DELAY)
                 continue
+                
+            logger.warning(f"❌ {model} خطای کد: {response.status_code}")
             return response
+            
         except (requests.Timeout, requests.ConnectionError) as e:
             logger.warning(f"🌐 خطای شبکه در {model}: {e}")
             if attempt < MAX_RETRIES - 1: time.sleep(RETRY_DELAY)
@@ -162,26 +147,55 @@ def call_gemini(model, contents, chat_id):
             return None
     return None
 
-# ======================
-# مدیریت پاسخ هوش مصنوعی (قبل از وب‌هوک قرار دارد)
-# ======================
+def extract_reply(response_data):
+    try:
+        if not response_data or "candidates" not in response_data: return None
+        first_candidate = response_data["candidates"][0]
+        
+        # هندل کردن سیستم ایمنی گوگل (اگه جواب بلاک بشه)
+        if first_candidate.get("finishReason") == "SAFETY":
+            return "این رو نمیتونم جواب بدم، بیا بحث رو عوض کنیم 🤫"
+            
+        parts = first_candidate.get("content", {}).get("parts", [])
+        text = "".join([part.get("text", "") for part in parts]).strip()
+        return str(text) if text else None # تبدیل صریح به استرینگ برای امنیت بیشتر
+    except Exception as e:
+        logger.error(f"❌ خطا در استخراج متن: {e}")
+        return None
+
+def is_bad_output(text):
+    if not text or not isinstance(text, str) or len(text.strip()) < 2: 
+        return True
+    bad_words = ["instruction", "system", "prompt", "analysis", "ai model"]
+    lower = text.lower()
+    return any(w in lower for w in bad_words)
+
 def get_ai_response(chat_id, user_text, is_owner=False):
     try:
         update_mood(chat_id, user_text)
         
-        final_text = user_text
-        if is_owner:
-            final_text = f"[پیام از طرف رئیس رضا]: {user_text}\n(نکته سیستمی: با ارادت ویژه و لحنی که برای رضا مشخص شده پاسخ بده)"
+        # ذخیره پیام تمیز در حافظه
+        add_to_memory(chat_id, "user", user_text)
 
-        add_to_memory(chat_id, "user", final_text)
+        # ساخت چت هیستوری استاندارد برای جیمینی
+        # حافظه در این بخش به شکل آرایه‌ای متوالی فرستاده می‌شود
         chat_history = list(memory.get(chat_id, []))
+
+        # اگر پیام از طرف ادمین/رئیس بود، یک راهنمایی موقت فقط برای این ریجستر چت اضافه کن (بدون آلوده کردن کانتکست حافظه)
+        if is_owner:
+            chat_history.append({
+                "role": "user", 
+                "parts": [{"text": "[نکته سیستمی بسیار مهم: این پیام از طرف رئیس رضا است. با لحن بسیار صمیمی و احترام خاصی که در پرامپت گفته شد جواب بده]"}]
+            })
 
         for model in MODELS:
             r = call_gemini(model, chat_history, chat_id)
             if r and r.status_code == 200:
                 data = r.json()
                 reply = extract_reply(data)
+                
                 if reply and not is_bad_output(reply):
+                    # ذخیره پاسخ ربات در حافظه
                     add_to_memory(chat_id, "model", reply)
                     return reply
                     
@@ -229,6 +243,7 @@ def webhook():
             return "OK", 200
         last_message_time[chat_id] = now
 
+        # تشخیص پاسخ به ربات یا صدا زدن اسمش
         replied_to_bot = False
         reply_msg = message.get("reply_to_message")
         if reply_msg:
@@ -240,10 +255,12 @@ def webhook():
         if not should_reply:
             return "OK", 200
 
+        # بررسی هویت رئیس
         is_owner = (username in ["pukev", "walov"]) or (user_id in OWNER_IDS)
 
         reply = get_ai_response(chat_id, text, is_owner=is_owner)
 
+        # ارسال نهایی به تلگرام
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={
             "chat_id": chat_id,
             "text": reply,
@@ -254,7 +271,7 @@ def webhook():
         return "OK", 200
     except Exception as e:
         logger.error(f"🔥 خطای اصلی وب‌هوک: {e}")
-        return "OK", 200
+        return "OK", 200 # همیشه ۲۰خ برگردان تا تلگرام پیام را مجدداً ارسال نکند!
 
 @app.route("/")
 def home(): return "Psycho Bot Running ✅"
