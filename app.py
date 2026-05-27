@@ -66,8 +66,8 @@ BASE_PROMPT = """
 
 # ✅ اصلاح نام مدل‌ها به ساختار رسمی و پایدار گوگل
 MODELS = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro"
+    "gemini-2.5-flash",
+    "gemini-2.0-flash"
 ]
 
 # ======================
@@ -95,7 +95,7 @@ def update_mood(chat_id, text):
 # فراخوانی جیمینی (اصلاح فرمت نهایی)
 # ======================
 def call_gemini(model, contents, chat_id):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
     
     system_instruction = f"{BASE_PROMPT}\n\n[وضعیت فعلی اتمسفر کاربر در این چت: {mood.get(chat_id, 'خنثی')}]"
 
