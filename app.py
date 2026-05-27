@@ -66,8 +66,8 @@ BASE_PROMPT = """
 
 # ✅ اصلاح نام مدل‌ها به ساختار رسمی و پایدار گوگل
 MODELS = [
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-pro-latest"
+    "gemini-1.5-flash",
+    "gemini-1.5-pro"
 ]
 
 # ======================
