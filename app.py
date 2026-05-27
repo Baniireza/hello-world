@@ -91,10 +91,11 @@ def update_mood(chat_id, text):
         mood[chat_id] = "خنثی"
 
 # ======================
-# فراخوانی جیمینی (اصلاح فرمت سیستم پرامپت)
+# فراخوانی جیمینی (اصلاح شده برای سری 1.5 و حل ارور 400)
 # ======================
 def call_gemini(model, contents, chat_id):
-    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
+    # استفاده از v1beta که با مدل‌های 1.5 کاملاً سازگار است
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
     
     system_instruction = f"{BASE_PROMPT}\n\n[وضعیت فعلی اتمسفر کاربر در این چت: {mood.get(chat_id, 'خنثی')}]"
 
@@ -104,11 +105,11 @@ def call_gemini(model, contents, chat_id):
             "parts": [{"text": system_instruction}]
         },
         "generationConfig": {
-            "temperature": 0.75,       # کمی پایین‌تر آوردیم تا مدل کمتر حاشیه‌پردازی کند و مستقیم پاسخ دهد
-            "maxOutputTokens": 1200,    # 🚀 افزایش یافت تا جملات به هیچ وجه نصفه‌کاره قطع نشوند
+            "temperature": 0.75,
+            "maxOutputTokens": 1200,
             "topP": 0.95
         },
-        # 🚀 خاموش کردن فیلترهای حساسیت جیمینی برای جلوگیری از بلاک شدن بحث‌های روانشناسی
+        # فرمت استاندارد شده و ساده‌تر امنیت برای مدل‌های جدید
         "safetySettings": [
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -125,16 +126,16 @@ def call_gemini(model, contents, chat_id):
                 logger.info(f"✅ {model} موفق (تلاش {attempt + 1})")
                 return response
             
-            if response.status_code == 429:
-                logger.warning(f"⏱️ لیمیت ۴۲۹ در {model}")
-                if attempt < MAX_RETRIES - 1: time.sleep(RATE_LIMIT_DELAY)
+            # اگر ارور داد، لاگ دقیق متن ارور گوگل رو بنویس تا بفهمیم چیه
+            logger.warning(f"❌ {model} خطای کد: {response.status_code} - متن: {response.text}")
+            
+            if response.status_code == 429 and attempt < MAX_RETRIES - 1:
+                time.sleep(RATE_LIMIT_DELAY)
+                continue
+            if response.status_code == 503 and attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY)
                 continue
                 
-            if response.status_code == 503:
-                if attempt < MAX_RETRIES - 1: time.sleep(RETRY_DELAY)
-                continue
-                
-            logger.warning(f"❌ {model} خطای کد: {response.status_code}")
             return response
             
         except (requests.Timeout, requests.ConnectionError) as e:
@@ -146,46 +147,24 @@ def call_gemini(model, contents, chat_id):
             return None
     return None
 
-def extract_reply(response_data):
-    try:
-        if not response_data or "candidates" not in response_data: return None
-        first_candidate = response_data["candidates"][0]
-        
-        # هندل کردن سیستم ایمنی گوگل (اگه جواب بلاک بشه)
-        if first_candidate.get("finishReason") == "SAFETY":
-            return "این رو نمیتونم جواب بدم، بیا بحث رو عوض کنیم 🤫"
-            
-        parts = first_candidate.get("content", {}).get("parts", [])
-        text = "".join([part.get("text", "") for part in parts]).strip()
-        return str(text) if text else None # تبدیل صریح به استرینگ برای امنیت بیشتر
-    except Exception as e:
-        logger.error(f"❌ خطا در استخراج متن: {e}")
-        return None
-
-def is_bad_output(text):
-    if not text or not isinstance(text, str) or len(text.strip()) < 2: 
-        return True
-    bad_words = ["instruction", "system", "prompt", "analysis", "ai model"]
-    lower = text.lower()
-    return any(w in lower for w in bad_words)
-
+# ======================
+# مدیریت پاسخ هوش مصنوعی (حل تداخل نوبت چت)
+# ======================
 def get_ai_response(chat_id, user_text, is_owner=False):
     try:
         update_mood(chat_id, user_text)
         
-        # ذخیره پیام تمیز در حافظه
-        add_to_memory(chat_id, "user", user_text)
-
-        # ساخت چت هیستوری استاندارد برای جیمینی
-        # حافظه در این بخش به شکل آرایه‌ای متوالی فرستاده می‌شود
-        chat_history = list(memory.get(chat_id, []))
-
-        # اگر پیام از طرف ادمین/رئیس بود، یک راهنمایی موقت فقط برای این ریجستر چت اضافه کن (بدون آلوده کردن کانتکست حافظه)
+        # اگر پیام از طرف ادمین/رئیس بود، دستور رو همون اول به متن پیامش بچسبون 
+        # تا ساختار متوالی User/Model بهم نخوره و ارور 400 نده
+        final_text = user_text
         if is_owner:
-            chat_history.append({
-                "role": "user", 
-                "parts": [{"text": "[نکته سیستمی بسیار مهم: این پیام از طرف رئیس رضا است. با لحن بسیار صمیمی و احترام خاصی که در پرامپت گفته شد جواب بده]"}]
-            })
+            final_text = f"[پیام از طرف رئیس رضا]: {user_text}\n(نکته سیستمی: با ارادت ویژه و لحنی که برای رضا مشخص شده پاسخ بده)"
+
+        # ذخیره پیام تمیز در حافظه
+        add_to_memory(chat_id, "user", final_text)
+
+        # ساخت چت هیستوری استاندارد
+        chat_history = list(memory.get(chat_id, []))
 
         for model in MODELS:
             r = call_gemini(model, chat_history, chat_id)
