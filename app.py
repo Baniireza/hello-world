@@ -187,4 +187,85 @@ def get_ai_response(chat_id, user_text, is_owner=False):
                     return reply
                     
         return "دسترسی من به هوش مصنوعی موقتا قطع شده 😵"
-    except Exception
+    except Exception as e:
+        logger.error(f"🔥 خطای کانتکست: {e}")
+        return "مغزم قاط زد 😭"
+
+# ======================
+# وب‌هوک تلگرام
+# ======================
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        update = request.get_json()
+        if not update or "message" not in update:
+            return "OK", 200
+
+        message = update["message"]
+        text = message.get("text", "")
+        chat = message.get("chat", {})
+        chat_id = chat.get("id")
+        chat_type = chat.get("type", "")
+        user = message.get("from", {})
+        user_id = user.get("id")
+        username = user.get("username", "").lower()
+
+        if not text or not chat_id:
+            return "OK", 200
+
+        if chat_type not in ["group", "supergroup"]:
+            return "OK", 200
+
+        if chat_id not in ALLOWED_GROUP_IDS:
+            last_notice = unauthorized_notice_sent.get(chat_id, 0)
+            if time.time() - last_notice > 3600:
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={
+                    "chat_id": chat_id, "text": "این ربات فقط داخل گروه اصلی فعاله 🌙"
+                }, timeout=10)
+                unauthorized_notice_sent[chat_id] = time.time()
+            return "OK", 200
+
+        now = time.time()
+        if now - last_message_time.get(chat_id, 0) < MIN_DELAY:
+            return "OK", 200
+        last_message_time[chat_id] = now
+
+        replied_to_bot = False
+        reply_msg = message.get("reply_to_message")
+        if reply_msg:
+            from_user = reply_msg.get("from", {})
+            if from_user.get("is_bot") and from_user.get("username", "").lower() == BOT_USERNAME.lower():
+                replied_to_bot = True
+
+        should_reply = replied_to_bot or "psycho" in text.lower() or "سایکو" in text.lower()
+        if not should_reply:
+            return "OK", 200
+
+        is_owner = (username in ["pukev", "walov"]) or (user_id in OWNER_IDS)
+
+        reply = get_ai_response(chat_id, text, is_owner=is_owner)
+
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": reply,
+            "reply_to_message_id": message.get("message_id"),
+            "allow_sending_without_reply": True
+        }, timeout=15)
+
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"🔥 خطای اصلی وب‌هوک: {e}")
+        return "OK", 200
+
+@app.route("/")
+def home(): return "Psycho Bot Running ✅"
+
+@app.route("/set_webhook")
+def set_webhook():
+    url = f"{APP_URL}/webhook"
+    r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook", params={"url": url})
+    return r.text
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False)
