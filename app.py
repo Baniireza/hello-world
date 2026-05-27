@@ -94,7 +94,7 @@ def update_mood(chat_id, text):
 # فراخوانی جیمینی (اصلاح فرمت سیستم پرامپت)
 # ======================
 def call_gemini(model, contents, chat_id):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
     
     system_instruction = f"{BASE_PROMPT}\n\n[وضعیت فعلی اتمسفر کاربر در این چت: {mood.get(chat_id, 'خنثی')}]"
 
