@@ -95,19 +95,20 @@ def update_mood(chat_id, text):
 # فراخوانی جیمینی (اصلاح فرمت نهایی)
 # ======================
 def call_gemini(model, contents, chat_id):
+    # آدرس رسمی و پایدار نسخه v1
     url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
     
-    system_instruction = f"{BASE_PROMPT}\n\n[وضعیت فعلی اتمسفر کاربر در این چت: {mood.get(chat_id, 'خنثی')}]"
-
-    # جلوگیری از خالی فرستادن کانتنت برای اولین پیام
     if not contents:
         return None
 
+    # تزریق اتمسفر چت به انتهای پرامپت پایه‌ای
+    system_instruction = f"{BASE_PROMPT}\n\n[وضعیت فعلی اتمسفر کاربر در این چت: {mood.get(chat_id, 'خنثی')}]"
+
+    # برای سازگاری کامل با نسخه v1، پرامپت سیستم را به عنوان پیام اول با نقش system قرار می‌دهیم
+    optimized_contents = [{"role": "system", "parts": [{"text": system_instruction}]}] + contents
+
     payload = {
-        "contents": contents,
-        "systemInstruction": {
-            "parts": [{"text": system_instruction}]
-        },
+        "contents": optimized_contents,
         "generationConfig": {
             "temperature": 0.75,
             "maxOutputTokens": 1200,
@@ -148,60 +149,6 @@ def call_gemini(model, contents, chat_id):
             logger.error(f"🔥 خطای عجیب: {e}")
             return None
     return None
-
-def extract_reply(response_data):
-    try:
-        if not response_data or "candidates" not in response_data: return None
-        first_candidate = response_data["candidates"][0]
-        
-        if first_candidate.get("finishReason") == "SAFETY":
-            return "این رو نمیتونم جواب بدم، بیا بحث رو عوض کنیم 🤫"
-            
-        parts = first_candidate.get("content", {}).get("parts", [])
-        text = "".join([part.get("text", "") for part in parts]).strip()
-        return str(text) if text else None
-    except Exception as e:
-        logger.error(f"❌ خطا در استخراج متن: {e}")
-        return None
-
-def is_bad_output(text):
-    if not text or not isinstance(text, str) or len(text.strip()) < 2: 
-        return True
-    bad_words = ["instruction", "system", "prompt", "analysis", "ai model"]
-    lower = text.lower()
-    return any(w in lower for w in bad_words)
-
-# ======================
-# مدیریت پاسخ هوش مصنوعی
-# ======================
-def get_ai_response(chat_id, user_text, is_owner=False):
-    try:
-        update_mood(chat_id, user_text)
-        
-        final_text = user_text
-        if is_owner:
-            final_text = f"[پیام از طرف رئیس رضا]: {user_text}\n(نکته سیستمی: با ارادت ویژه و لحنی که برای رضا مشخص شده پاسخ بده)"
-
-        # ذخیره پیام در حافظه
-        add_to_memory(chat_id, "user", final_text)
-
-        # ساخت چت هیستوری استاندارد
-        chat_history = list(memory.get(chat_id, []))
-
-        for model in MODELS:
-            r = call_gemini(model, chat_history, chat_id)
-            if r and r.status_code == 200:
-                data = r.json()
-                reply = extract_reply(data)
-                
-                if reply and not is_bad_output(reply):
-                    add_to_memory(chat_id, "model", reply)
-                    return reply
-                    
-        return "دسترسی من به هوش مصنوعی موقتا قطع شده 😵"
-    except Exception as e:
-        logger.error(f"🔥 خطای کانتکست: {e}")
-        return "مغزم قاط زد 😭"
 
 # ======================
 # وب‌هوک تلگرام
